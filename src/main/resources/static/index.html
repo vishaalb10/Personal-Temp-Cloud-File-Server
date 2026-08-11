@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FileNest</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { display: ['Space Grotesk', 'sans-serif'] },
+                    colors: {
+                        blueprimary: '#2563eb',
+                        bluehover: '#1d4ed8',
+                        bluelight: '#eff6ff',
+                        linec: '#dbeafe',
+                        greenc: '#059669',
+                        greenlight: '#ecfdf5',
+                        redc: '#dc2626',
+                        redlight: '#fef2f2',
+                        purplec: '#7c3aed',
+                        purplelight: '#f5f3ff',
+                        amberc: '#b45309',
+                        amberlight: '#fffbeb',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .filenest-3d {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 800;
+            background: linear-gradient(180deg, #bfdbfe 0%, #3b82f6 55%, #1d4ed8 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-shadow:
+                    1px 1px 0 #1e40af,
+                    2px 2px 0 #1e40af,
+                    3px 3px 0 #1e3a8a,
+                    4px 5px 8px rgba(30, 58, 138, 0.35);
+            letter-spacing: -0.01em;
+        }
+    </style>
+</head>
+<body class="bg-white text-[#16181d] font-sans h-screen flex flex-col overflow-hidden">
+
+<!-- NAVBAR -->
+<div class="h-[72px] shrink-0 border-b border-linec flex items-center justify-between px-6">
+    <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-blueprimary rounded-xl flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M6 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.2 8.1 4.5 4.5 0 0 1 18 18H6z" fill="white"/>
+            </svg>
+        </div>
+        <div>
+            <div class="filenest-3d text-2xl leading-none">FileNest</div>
+            <div class="text-[11px] text-[#8b95a5] mt-0.5">Temp - Storage - Space </div>
+        </div>
+    </div>
+    <div class="flex items-center gap-2">
+        <button onclick="document.getElementById('dropZone').scrollIntoView()"
+                class="flex items-center gap-1.5 px-4 py-2.5 bg-blueprimary hover:bg-bluehover text-white text-sm font-semibold rounded-lg transition-colors">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7 9m5-5l5 5M4 20h16" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Upload
+        </button>
+        <button onclick="loadFiles()"
+                class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-linec hover:bg-bluelight text-[#16181d] text-sm font-semibold rounded-lg transition-colors">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0 1 14-4.5M20 15a8 8 0 0 1-14 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Refresh
+        </button>
+        <button onclick="openGuide()"
+                class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-linec hover:bg-bluelight text-[#16181d] text-sm font-semibold rounded-lg transition-colors">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2 2-2 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="16.5" r="0.75" fill="currentColor"/></svg>
+            Guide
+        </button>
+    </div>
+</div>
+
+<!-- PASSKEY INPUT BAR -->
+<div class="shrink-0 border-b border-linec px-6 py-3.5 flex items-center gap-3">
+    <div class="flex-1 relative">
+        <svg class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#9aa5b8]" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2"/></svg>
+        <input id="passkeyInput" type="text" maxlength="5" placeholder="Enter a 5-digit passkey if u want to create a custom (or) leave it blank to auto generate "
+               class="w-full pl-10 pr-3.5 py-2.5 border border-linec rounded-lg text-sm outline-none focus:border-blueprimary transition-colors"
+               onkeydown="if(event.key==='Enter') loadFiles()">
+    </div>
+    <button onclick="loadFiles()"
+            class="px-5 py-2.5 bg-blueprimary hover:bg-bluehover text-white text-sm font-semibold rounded-lg transition-colors whitespace-nowrap">
+        Load Files
+    </button>
+</div>
+
+<!-- PRIVACY BANNER -->
+<div class="shrink-0 border-b border-linec bg-greenlight px-6 py-2.5 flex items-center gap-2">
+    <svg class="w-4 h-4 text-greenc shrink-0" viewBox="0 0 24 24" fill="none"><path d="M12 2l7 3v6c0 5-3.4 8.4-7 10-3.6-1.6-7-5-7-10V5l7-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="text-xs text-[#166534]">Your files are private and accessible only with your passkey.</span>
+</div>
+
+<!-- MAIN TWO-PANEL BODY -->
+<div class="flex-1 flex overflow-hidden">
+
+    <!-- LEFT: FILE LIST + RECENT PASSKEYS -->
+    <div class="w-[280px] shrink-0 border-r border-linec flex flex-col overflow-hidden bg-white">
+
+        <div class="px-5 py-3.5 border-b border-linec flex items-center justify-between bg-[#fafbfc]">
+            <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-blueprimary" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke="currentColor" stroke-width="2"/></svg>
+                <span class="font-display font-bold text-sm tracking-wide">YOUR FILES</span>
+            </div>
+            <span id="fileCountBadge" class="text-[11px] text-[#9aa5b8]"></span>
+        </div>
+
+        <div id="fileList" class="overflow-y-auto p-3 flex flex-col gap-2" style="max-height: 42%;">
+            <div class="flex flex-col items-center justify-center text-center px-6 py-8">
+                <div class="relative mb-3">
+                    <svg class="w-12 h-12 text-[#c7dbfa]" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke="currentColor" stroke-width="1.5"/></svg>
+                    <span class="absolute -top-1 -right-1 text-blueprimary text-xs">✦</span>
+                </div>
+                <div class="font-semibold text-sm text-[#4b5563]">No files loaded yet</div>
+                <div class="text-xs text-[#9aa5b8] mt-1 leading-relaxed">Enter a passkey above or upload a new file to get started.</div>
+            </div>
+        </div>
+
+        <!-- RECENT PASSKEYS -->
+        <div class="border-t border-linec flex-1 overflow-y-auto flex flex-col">
+            <div class="px-5 py-3 flex items-center justify-between">
+                <span class="font-display font-bold text-xs text-[#4b5563] tracking-wide">RECENT ON THIS DEVICE</span>
+                <button onclick="clearRecent()" class="text-[11px] text-blueprimary hover:text-bluehover font-medium">Clear</button>
+            </div>
+            <div id="recentList" class="px-3 flex flex-col gap-1.5">
+                <div class="flex items-start gap-2.5 px-2 py-2">
+                    <div class="w-7 h-7 rounded-full bg-bluelight flex items-center justify-center shrink-0 mt-0.5">
+                        <svg class="w-3.5 h-3.5 text-blueprimary" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    </div>
+                    <div>
+                        <div class="text-xs font-semibold text-[#4b5563]">No recent passkeys</div>
+                        <div class="text-[11px] text-[#9aa5b8] mt-0.5 leading-relaxed">Passkeys you use will show up here for quick access</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mx-3 mt-auto mb-3 p-3.5 bg-bluelight border border-linec rounded-xl flex gap-2.5">
+                <svg class="w-4 h-4 text-blueprimary shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2"/></svg>
+                <div class="text-xs font-semibold text-[#16181d]">
+                    Let Me Know If There Is Any Bug/Issue
+                </div>
+
+                <a href="https://mail.google.com/mail/?view=cm&fs=1&to=vishaal10pq@gmail.com"
+                   target="_blank"
+                   class="text-[11px] text-blueprimary hover:text-bluehover transition-colors">
+                    >REPORT
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT: UPLOAD + FEATURES -->
+    <div class="flex-1 overflow-y-auto">
+        <div class="max-w-[820px] mx-auto px-8 py-8">
+
+            <div id="dropZone"
+                 class="border-2 border-dashed border-[#93c5fd] bg-bluelight rounded-2xl py-12 px-6 text-center cursor-pointer transition-all hover:-translate-y-0.5">
+                <svg class="w-11 h-11 text-blueprimary mx-auto mb-3" viewBox="0 0 24 24" fill="none"><path d="M6 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.2 8.1 4.5 4.5 0 0 1 18 18H6z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 12v6m0-6l-2.5 2.5M12 12l2.5 2.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <div class="font-display font-bold text-lg">Drag & drop to upload</div>
+                <div class="text-sm text-[#6b7280] mt-1">or click to browse your files</div>
+                <div class="text-xs text-[#9aa5b8] mt-1">Uses the passkey above if entered </div>
+                <div class="text-xs text-[#9aa5b8] mt-1">PLZ wait for some time for it to be uploaded and gen a key </div>
+            </div>
+            <input type="file" id="fileInput" class="hidden">
+
+            <div id="passkeyDisplay" class="hidden mt-4 items-center justify-between gap-3 px-4 py-3.5 bg-bluelight border border-linec rounded-xl">
+                <div>
+                    <span class="block text-xs text-[#6b7280]">Your passkey — save this</span>
+                    <strong id="passkeyValue" class="block text-blueprimary font-display text-2xl tracking-widest mt-0.5"></strong>
+                </div>
+                <button onclick="copyPasskey()"
+                        class="px-3.5 py-2 bg-white border border-linec text-blueprimary rounded-lg text-xs font-bold hover:bg-white whitespace-nowrap">
+                    Copy
+                </button>
+            </div>
+
+            <!-- FILE TYPE PILLS -->
+            <div class="mt-6 flex flex-wrap items-center justify-center gap-2.5">
+                <div class="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-linec rounded-full text-xs font-medium text-[#4b5563]">
+                    <svg class="w-3.5 h-3.5 text-greenc" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15l-5-5-4 4-3-3-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    Images
+                </div>
+                <div class="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-linec rounded-full text-xs font-medium text-[#4b5563]">
+                    <svg class="w-3.5 h-3.5 text-redc" viewBox="0 0 24 24" fill="none"><path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 2v5h5" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                    PDFs
+                </div>
+                <div class="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-linec rounded-full text-xs font-medium text-[#4b5563]">
+                    <svg class="w-3.5 h-3.5 text-blueprimary" viewBox="0 0 24 24" fill="none"><path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 13h6M9 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    Docs
+                </div>
+                <div class="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-linec rounded-full text-xs font-medium text-[#4b5563]">
+                    <svg class="w-3.5 h-3.5 text-amberc" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke="currentColor" stroke-width="2"/><path d="M12 5v14" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/></svg>
+                    Zips
+                </div>
+                <div class="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-linec rounded-full text-xs font-medium text-[#4b5563]">
+                    <svg class="w-3.5 h-3.5 text-purplec" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z" stroke="currentColor" stroke-width="2"/></svg>
+                    Any file type
+                </div>
+            </div>
+
+            <!-- WHY FILENEST -->
+            <div class="mt-10">
+                <div class="font-display font-bold text-lg">What Is The Requirement Of FileNest?</div>
+                <div class="text-sm text-[#6b7280] mt-1">Easy Way To Store Temporary Files Privately And Secured.</div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-5">
+                    <div class="border border-linec rounded-2xl p-4">
+                        <div class="w-9 h-9 rounded-full bg-bluelight flex items-center justify-center mb-3">
+                            <svg class="w-4 h-4 text-blueprimary" viewBox="0 0 24 24" fill="none"><path d="M12 2l7 3v6c0 5-3.4 8.4-7 10-3.6-1.6-7-5-7-10V5l7-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                        </div>
+                        <div class="font-bold text-sm">USE AND THROW</div>
+                        <div class="text-xs text-[#6b7280] mt-1.5 leading-relaxed">When u want to use the files for a temporary time period and delete it later </div>
+                    </div>
+                    <div class="border border-linec rounded-2xl p-4">
+                        <div class="w-9 h-9 rounded-full bg-greenlight flex items-center justify-center mb-3">
+                            <svg class="w-4 h-4 text-greenc" viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                        </div>
+                        <div class="font-bold text-sm">QWIK AF </div>
+                        <div class="text-xs text-[#6b7280] mt-1.5 leading-relaxed">Upload in seconds. Share instantly. Anyone with the passkey can view and download — no signup or login is required .</div>
+                    </div>
+                    <div class="border border-linec rounded-2xl p-4">
+                        <div class="w-9 h-9 rounded-full bg-purplelight flex items-center justify-center mb-3">
+                            <svg class="w-4 h-4 text-purplec" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2"/></svg>
+                        </div>
+                        <div class="font-bold text-sm"> Safe,But Don’t Be Bait </div>
+                        <div class="text-xs text-[#6b7280] mt-1.5 leading-relaxed">Your files are safe, bro — but don’t be using some bait passkey like 12345. people are gonna try the obvious ones Keep it lowkey and don’t make it easy for the mandem.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SHARE ANYTHING CARD -->
+            <div class="mt-6 relative overflow-hidden bg-bluelight border border-linec rounded-2xl p-5 flex items-start gap-3.5">
+                <div class="w-10 h-10 rounded-full bg-white border border-linec flex items-center justify-center shrink-0 z-10">
+                    <svg class="w-4.5 h-4.5 text-blueprimary" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="2"/><path d="M2 20c0-3.3 3.1-6 7-6s7 2.7 7 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.3" stroke="currentColor" stroke-width="2"/><path d="M22 20c0-2.6-1.9-4.8-4.5-5.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                </div>
+                <div class="z-10">
+                    <div class="font-semibold text-sm">Share anything. Anywhere.</div>
+                    <div class="text-xs text-[#6b7280] mt-1 leading-relaxed max-w-[440px]">FileNest makes sharing documents, photos, PDFs, and more fast and effortless. Perfect for projects, handoffs, classwork, or sharing memories.</div>
+                </div>
+                <svg class="absolute -right-4 -bottom-6 w-32 h-32 text-white opacity-70 z-0" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.2 8.1 4.5 4.5 0 0 1 18 18H6z"/></svg>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<!-- FOOTER -->
+<div class="shrink-0 border-t border-linec px-6 py-3 flex items-center justify-between text-xs text-[#8b95a5]">
+    <div class="flex items-center gap-2">
+        <span class="w-4 h-4 rounded-full bg-blueprimary"></span>
+        <span class="text-sm font-extrabold text-[#4b5563]">FILENEST</span>
+        <span class="text-sm font-bold text-[#4b5563]">
+    — NO SIGNUP · NO CREDIT CARD · 100% FREE
+</span>
+    </div>
+    <a href="https://github.com/vishaalb10" target="_blank" class="text-[#4b5563] hover:text-[#16181d] transition-colors">
+        <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.42-2.69 5.4-5.25 5.68.42.36.78 1.08.78 2.18 0 1.58-.01 2.85-.01 3.24 0 .3.2.66.79.55A10.52 10.52 0 0 0 23.5 12c0-6.35-5.15-11.5-11.5-11.5z"/></svg>
+    </a>
+</div>
+
+<!-- GUIDE MODAL -->
+<div id="guideModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 items-center justify-center px-4"
+     onclick="if(event.target === this) closeGuide()">
+    <div class="bg-white rounded-2xl border border-linec shadow-2xl max-w-md w-full max-h-[85vh] overflow-y-auto">
+
+        <div class="flex items-center justify-between px-6 py-4 border-b border-linec sticky top-0 bg-white">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 rounded-lg bg-bluelight flex items-center justify-center">
+                    <svg class="w-4 h-4 text-blueprimary" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2 2-2 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="16.5" r="0.75" fill="currentColor"/></svg>
+                </div>
+                <span class="font-display font-bold text-base">How to use FileNest</span>
+            </div>
+            <button onclick="closeGuide()" class="text-[#9aa5b8] hover:text-[#16181d] transition-colors">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+        </div>
+
+        <div class="px-6 py-5 flex flex-col gap-4">
+
+            <div class="flex gap-3">
+                <div class="w-7 h-7 rounded-full bg-blueprimary text-white flex items-center justify-center text-xs font-bold shrink-0">1</div>
+                <div>
+                    <div class="text-sm font-semibold">Drag a file in, or click to browse</div>
+                    <div class="text-xs text-[#6b7280] mt-0.5 leading-relaxed">Drop it onto the upload box on the right, or click the box to open your file picker.</div>
+                </div>
+            </div>
+
+            <div class="flex gap-3">
+                <div class="w-7 h-7 rounded-full bg-blueprimary text-white flex items-center justify-center text-xs font-bold shrink-0">2</div>
+                <div>
+                    <div class="text-sm font-semibold">Save the passkey you're given</div>
+                    <div class="text-xs text-[#6b7280] mt-0.5 leading-relaxed">A code appears after upload — write it down. Want to pick your own instead? Type up to 5 digits or alphabets(I recommend using both)into the passkey bar before uploading.</div>
+                </div>
+            </div>
+
+            <div class="flex gap-3">
+                <div class="w-7 h-7 rounded-full bg-blueprimary text-white flex items-center justify-center text-xs font-bold shrink-0">3</div>
+                <div>
+                    <div class="text-sm font-semibold">Load your files from any device</div>
+                    <div class="text-xs text-[#6b7280] mt-0.5 leading-relaxed">Enter that passkey in the bar up top and hit "Load Files" — same code works on your phone, laptop, anywhere.!Hopefully😭</div>
+                </div>
+            </div>
+
+            <div class="flex gap-3">
+                <div class="w-7 h-7 rounded-full bg-blueprimary text-white flex items-center justify-center text-xs font-bold shrink-0">4</div>
+                <div>
+                    <div class="text-sm font-semibold">Get or Delete (Within 7 Days)</div>
+                    <div class="text-xs text-[#6b7280] mt-0.5 leading-relaxed">Each file in your list has an Open and a Delete button — Plz make sure to delete the files within 7days after it is uploaded.</div>
+                </div>
+            </div>
+
+            <div class="border-t border-linec pt-4 mt-1">
+                <div class="text-xs font-bold text-[#4b5563] uppercase tracking-wide mb-2.5">File size limits</div>
+                <div class="flex flex-col gap-1.5">
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="text-[#6b7280]">Images, PDFs, Docs, Zips</span>
+                        <span class="font-semibold text-[#16181d]">Up to 10 MB</span>
+                    </div>
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="text-[#6b7280]">Videos</span>
+                        <span class="font-semibold text-[#16181d]">Up to 100 MB</span>
+                    </div>
+                </div>
+                <div class="text-[11px] text-[#9aa5b8] mt-2.5 leading-relaxed">These limits come from our free storage plan — files larger than this may fail to upload.</div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const passkeyInput = document.getElementById('passkeyInput');
+    const passkeyDisplay = document.getElementById('passkeyDisplay');
+    const passkeyValue = document.getElementById('passkeyValue');
+    const fileList = document.getElementById('fileList');
+    const recentList = document.getElementById('recentList');
+    const fileCountBadge = document.getElementById('fileCountBadge');
+    const guideModal = document.getElementById('guideModal');
+
+    const RECENT_KEY = 'filenest_recent_passkeys';
+
+    function openGuide() {
+        guideModal.classList.remove('hidden');
+        guideModal.classList.add('flex');
+    }
+
+    function closeGuide() {
+        guideModal.classList.add('hidden');
+        guideModal.classList.remove('flex');
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeGuide();
+    });
+
+    function getRecent() {
+        try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; }
+        catch { return []; }
+    }
+
+    function saveRecent(passkey) {
+        let recent = getRecent().filter(p => p !== passkey);
+        recent.unshift(passkey);
+        recent = recent.slice(0, 5);
+        localStorage.setItem(RECENT_KEY, JSON.stringify(recent));
+        renderRecent();
+    }
+
+    function clearRecent() {
+        localStorage.removeItem(RECENT_KEY);
+        passkeyInput.value = '';
+
+        // Clear the displayed passkey as well
+        passkeyValue.textContent = '';
+        passkeyDisplay.classList.add('hidden');
+        passkeyDisplay.classList.remove('flex');
+        renderRecent();
+    }
+
+    function renderRecent() {
+        const recent = getRecent();
+        if (recent.length === 0) {
+            recentList.innerHTML = `
+        <div class="flex items-start gap-2.5 px-2 py-2">
+          <div class="w-7 h-7 rounded-full bg-bluelight flex items-center justify-center shrink-0 mt-0.5">
+            <svg class="w-3.5 h-3.5 text-blueprimary" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+          <div>
+            <div class="text-xs font-semibold text-[#4b5563]">No recent passkeys</div>
+            <div class="text-[11px] text-[#9aa5b8] mt-0.5 leading-relaxed">Passkeys you use will show up here for quick access</div>
+          </div>
+        </div>`;
+            return;
+        }
+        recentList.innerHTML = recent.map(p => `
+      <button onclick="quickLoad('${p}')"
+        class="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-bluelight transition-colors text-left">
+        <span class="font-mono text-sm font-semibold tracking-wide">${p}</span>
+        <span class="text-[11px] text-blueprimary">Load →</span>
+      </button>
+    `).join('');
+    }
+
+    function quickLoad(passkey) {
+        passkeyInput.value = passkey;
+        loadFiles();
+    }
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('bg-[#dbeafe]');
+    });
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('bg-[#dbeafe]');
+    });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('bg-[#dbeafe]');
+        if (e.dataTransfer.files.length > 0) uploadFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) uploadFile(fileInput.files[0]);
+    });
+
+    async function uploadFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const existingPasskey = passkeyInput.value.trim();
+        if (existingPasskey && existingPasskey !== 'undefined' && existingPasskey !== 'null') {
+            formData.append('passkey', existingPasskey);
+        }
+
+        try {
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+
+            if (!res.ok) {
+                const errorText = await res.text();
+                console.error('Upload failed:', res.status, errorText);
+                alert(`Upload failed (${res.status}). Check the browser console for details.`);
+                return;
+            }
+
+            const data = await res.json();
+
+            passkeyValue.textContent = data.passkey;
+            passkeyDisplay.classList.remove('hidden');
+            passkeyDisplay.classList.add('flex');
+            passkeyInput.value = data.passkey;
+
+            saveRecent(data.passkey);
+            loadFiles();
+        } catch (err) {
+            console.error('Upload error:', err);
+            alert('Something went wrong uploading. Check the browser console.');
+        }
+    }
+
+    function copyPasskey() {
+        navigator.clipboard.writeText(passkeyValue.textContent);
+    }
+
+    async function loadFiles() {
+        const passkey = passkeyInput.value.trim();
+        if (!passkey) return;
+
+        const res = await fetch('/files/' + passkey);
+        const files = await res.json();
+
+        fileList.innerHTML = '';
+
+        if (!files || files.length === 0) {
+            fileList.innerHTML = `
+        <div class="flex flex-col items-center justify-center text-center px-6 py-8">
+          <div class="font-semibold text-sm text-[#4b5563]">No files yet</div>
+          <div class="text-xs text-[#9aa5b8] mt-1">for passkey ${passkey}</div>
+        </div>`;
+            fileCountBadge.textContent = '0 files';
+            saveRecent(passkey);
+            return;
+        }
+
+        fileCountBadge.textContent = `${files.length} file${files.length > 1 ? 's' : ''}`;
+        saveRecent(passkey);
+
+        files.forEach(file => {
+            const item = document.createElement('div');
+            item.className = 'flex items-center gap-3 p-3 border border-linec rounded-lg hover:bg-bluelight transition-colors';
+
+            const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(file.format);
+            const preview = isImage
+                ? `<img class="w-10 h-10 object-cover rounded-md border border-linec" src="${file.secure_url}">`
+                : `<div class="w-10 h-10 rounded-md bg-amberlight flex items-center justify-center text-base">📄</div>`;
+
+            const name = file.public_id.split('/').pop();
+            const ext = file.format || (name.includes('.') ? name.split('.').pop() : '');
+            const downloadName = name.includes('.') ? name : (ext ? `${name}.${ext}` : name);
+            const safeId = file.public_id.replace('/', '--');
+
+            item.innerHTML = `
+        ${preview}
+        <div class="flex-1 text-sm font-medium truncate">${downloadName}</div>
+        <a class="text-xs text-blueprimary font-semibold px-2 py-1 rounded hover:bg-white" href="${file.secure_url}" download="${downloadName}" target="_blank">Open</a>
+        <button class="text-xs text-redc font-semibold px-2 py-1 rounded hover:bg-white" onclick="deleteFile('${safeId}')">Delete</button>
+      `;
+            fileList.appendChild(item);
+        });
+    }
+
+    async function deleteFile(safeId) {
+        const passkey = passkeyInput.value.trim();
+        await fetch(`/files/${passkey}/${safeId}`, { method: 'DELETE' });
+        loadFiles();
+    }
+
+    renderRecent();
+</script>
+
+</body>
+</html>
