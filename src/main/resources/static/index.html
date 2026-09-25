@@ -190,7 +190,7 @@
 
         /* ---------- Passkey input ---------- */
         .field {
-            width: 100%; height: 40px;
+            width: 100%; height: 38px;
             padding: 0 52px 0 40px;
             border-radius: 10px;
             background: #fff;
@@ -304,7 +304,7 @@
         .hero-copy { container-type: inline-size; }
         .headline {
             font-family: 'Space Grotesk', sans-serif; font-weight: 700;
-            font-size: 1.95rem; line-height: 1.04; letter-spacing: -0.035em;
+            font-size: 1.85rem; line-height: 1.04; letter-spacing: -0.035em;
             text-align: center; color: var(--ink);
         }
         .headline-line { display: block; }
@@ -314,12 +314,12 @@
             background-clip: text;
             color: transparent;
         }
-        @container (min-width: 480px) { .headline { font-size: 2.25rem; } }
+        @container (min-width: 480px) { .headline { font-size: 2.1rem; } }
         @container (min-width: 560px) {
-            .headline { font-size: 2.5rem; }
+            .headline { font-size: 2.35rem; }
             .headline-line--pair { display: inline; }
         }
-        @container (min-width: 660px) { .headline { font-size: 3rem; } }
+        @container (min-width: 660px) { .headline { font-size: 2.75rem; } }
 
         .enter {
             animation: rise-in 520ms var(--ease-out) backwards;
@@ -926,7 +926,7 @@
         </header>
 
         <!-- PASSKEY INPUT BAR -->
-        <div id="passkeyBar" class="shrink-0 border-b border-linec px-4 md:px-6 py-2.5 flex items-center gap-2 md:gap-3">
+        <div id="passkeyBar" class="shrink-0 border-b border-linec px-4 md:px-6 py-2 flex items-center gap-2 md:gap-3">
             <div id="passkeyField" class="relative flex-1 min-w-0">
                 <label for="passkeyInput" class="sr-only">Passkey</label>
                 <svg class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-muted pointer-events-none" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2"/></svg>
@@ -935,7 +935,7 @@
                        autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go">
                 <span id="passkeyCount" class="field-count" aria-hidden="true">0/5</span>
             </div>
-            <button id="loadFilesBtn" class="btn btn-primary">
+            <button id="loadFilesBtn" class="btn btn-primary h-[38px]">
                 <span class="btn-label">Load files</span>
                 <span class="btn-spinner" aria-hidden="true"></span>
             </button>
