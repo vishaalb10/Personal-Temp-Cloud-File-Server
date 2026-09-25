@@ -2,11 +2,813 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FileNest</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <!-- Apply a saved dark-mode choice before the first paint so the page never flashes light. -->
+    <script>try { if (localStorage.getItem('filenest_theme') === 'dark') document.documentElement.classList.add('dark'); } catch (e) {}</script>
+    <title>FileNest — Temporary file sharing with a passkey</title>
+    <meta name="description" content="Upload a file, get a short passkey, and open it on any device. No signup, no login, 100% free.">
+    <meta name="theme-color" content="#faf8f2">
+    <meta name="color-scheme" content="light">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="FileNest">
+    <meta property="og:title" content="FileNest — Temporary file sharing with a passkey">
+    <meta property="og:description" content="Upload a file, get a short passkey, and open it on any device. No signup, no login, 100% free.">
+    <meta name="twitter:card" content="summary">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='10 20 80 60'%3E%3Cpath d='M25 65a16 16 0 0 1-2-31 22 22 0 0 1 43 4 18 18 0 0 1 9 27Z' fill='%231d4ed8'/%3E%3C/svg%3E">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700;800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+
+    <!-- Component styles. Tailwind's CDN injects its CSS after this block, so utilities win ties.
+         Buttons intentionally have no type="button" attribute: Tailwind's preflight targets
+         [type='button'] with a transparent background, which would beat .btn-primary. -->
+    <style>
+        [hidden] { display: none !important; }
+
+        :root {
+            --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+            --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+            --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+            --ink: #16181d;
+            --ring: #d6e2f5;
+            --ring-strong: #b9cdf0;
+            --blue: #2563eb;
+            --blue-hover: #1d4ed8;
+        }
+
+        ::selection { background: #bfdbfe; color: #0f172a; }
+
+        :where(a, button, input, [tabindex]):focus-visible {
+            outline: 2px solid var(--blue);
+            outline-offset: 2px;
+        }
+
+        .skip-link {
+            position: fixed; left: 12px; top: 12px; z-index: 100;
+            padding: 8px 12px; border-radius: 8px;
+            background: var(--ink); color: #fff; font-size: 13px; font-weight: 600;
+            transform: translateY(-160%);
+            transition: transform 200ms var(--ease-out);
+        }
+        .skip-link:focus { transform: none; }
+
+        /* ---------- Brand ---------- */
+        /* Gradient face + crisp 2px extrusion. The depth comes from drop-shadow filters on the wrapper:
+           text-shadow paints on top of a background-clip:text face, which is what made the old wordmark look muddy. */
+        .filenest-3d {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: -0.02em;
+            filter:
+                    drop-shadow(1px 1px 0 #1e40af)
+                    drop-shadow(1px 1px 0 #1e3a8a)
+                    drop-shadow(0 3px 5px rgb(30 58 138 / 0.25));
+        }
+        .filenest-3d > span {
+            background: linear-gradient(180deg, #8ec1fd 0%, #3b82f6 50%, #1d4ed8 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .brand-tagline {
+            font-size: 10px; font-weight: 600; line-height: 1;
+            letter-spacing: 0.16em; text-transform: uppercase;
+            color: #6b7280;
+        }
+        .logo-tile {
+            display: grid; place-items: center; flex-shrink: 0;
+            width: 40px; height: 40px; border-radius: 12px;
+            background: #2563eb linear-gradient(180deg, rgb(255 255 255 / 0.18), rgb(255 255 255 / 0));
+            box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 0 0 1px #1d4ed8, 0 6px 14px -6px rgb(37 99 235 / 0.6);
+        }
+
+        /* ---------- Buttons ---------- */
+        .btn {
+            position: relative;
+            display: inline-flex; align-items: center; justify-content: center;
+            height: 40px; padding: 0 16px;
+            border-radius: 10px;
+            font-size: 14px; font-weight: 600; line-height: 1;
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            transition:
+                    transform 160ms var(--ease-out),
+                    background-color 150ms ease,
+                    box-shadow 150ms ease,
+                    color 150ms ease,
+                    opacity 150ms ease;
+        }
+        .btn:active:not(:disabled) { transform: scale(0.97); }
+        .btn:disabled { cursor: not-allowed; opacity: 0.55; }
+        .btn[data-loading], .btn[data-busy] { cursor: progress; opacity: 1; }
+
+        .btn-primary {
+            --btn-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), 0 0 0 1px #1d4ed8, 0 1px 2px rgb(29 78 216 / 0.3), 0 6px 16px -6px rgb(37 99 235 / 0.55);
+            color: #fff;
+            background-color: var(--blue);
+            background-image: linear-gradient(180deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0));
+            box-shadow: var(--btn-shadow);
+        }
+        .btn-secondary {
+            --btn-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgb(16 24 40 / 0.06);
+            color: var(--ink);
+            background-color: #fff;
+            box-shadow: var(--btn-shadow);
+        }
+        @media (hover: hover) and (pointer: fine) {
+            .btn-primary:hover:not(:disabled) {
+                background-color: var(--blue-hover);
+                --btn-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), 0 0 0 1px #1e40af, 0 1px 2px rgb(29 78 216 / 0.35), 0 8px 20px -6px rgb(37 99 235 / 0.6);
+            }
+            .btn-secondary:hover:not(:disabled) {
+                background-color: #f5f8fe;
+                --btn-shadow: 0 0 0 1px var(--ring-strong), 0 1px 2px rgb(16 24 40 / 0.08);
+            }
+        }
+
+        .btn-sm { height: 34px; padding: 0 12px; font-size: 13px; border-radius: 9px; }
+
+        .btn-label {
+            display: inline-flex; align-items: center; gap: 8px;
+            transition: opacity 150ms ease, filter 150ms ease;
+        }
+        .btn-sm .btn-label { gap: 6px; }
+        .btn-spinner {
+            position: absolute; inset: 0; margin: auto;
+            width: 16px; height: 16px; border-radius: 999px;
+            border: 2px solid currentColor; border-right-color: transparent;
+            opacity: 0;
+            animation: spin 600ms linear infinite paused;
+            transition: opacity 150ms ease;
+        }
+        [data-loading] > .btn-label { opacity: 0; filter: blur(2px); }
+        [data-loading] > .btn-spinner { opacity: 1; animation-play-state: running; }
+
+        /* Icon-only on small screens; the text stays for screen readers. */
+        @media (max-width: 639px) {
+            .btn-collapse { width: 40px; padding: 0; }
+            .btn-collapse .btn-text {
+                position: absolute; width: 1px; height: 1px; overflow: hidden;
+                clip: rect(0 0 0 0); white-space: nowrap;
+            }
+        }
+
+        #refreshBtn[data-busy] .refresh-icon { animation: spin 700ms linear infinite; }
+
+        .link-btn {
+            font-size: 12px; font-weight: 600; color: var(--blue);
+            padding: 4px 6px; margin: -4px -6px; border-radius: 6px;
+            cursor: pointer;
+            transition: color 150ms ease, background-color 150ms ease, transform 160ms var(--ease-out);
+        }
+        .link-btn:active { transform: scale(0.96); }
+        @media (hover: hover) and (pointer: fine) {
+            .link-btn:hover { color: var(--blue-hover); background-color: #eff6ff; }
+        }
+
+        .icon-btn {
+            position: relative; flex-shrink: 0;
+            display: inline-grid; place-items: center;
+            width: 32px; height: 32px; border-radius: 8px;
+            color: #4b5563;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 160ms var(--ease-out), background-color 150ms ease, color 150ms ease;
+        }
+        .icon-btn:active:not(:disabled) { transform: scale(0.92); }
+        .icon-btn > svg { transition: opacity 150ms ease; }
+        .icon-btn[data-loading] > svg { opacity: 0; }
+        .icon-btn .btn-spinner { width: 14px; height: 14px; }
+        .icon-btn[data-loading] > .btn-spinner { opacity: 1; animation-play-state: running; }
+        @media (hover: hover) and (pointer: fine) {
+            .icon-btn:hover { background-color: #eff6ff; color: var(--blue); }
+            .icon-btn-danger:hover { background-color: #fef2f2; color: #dc2626; }
+        }
+
+        /* ---------- Passkey input ---------- */
+        .field {
+            width: 100%; height: 44px;
+            padding: 0 52px 0 40px;
+            border-radius: 10px;
+            background: #fff;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 16px; /* 16px stops iOS Safari from zooming on focus */
+            font-weight: 600; letter-spacing: 0.16em;
+            box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgb(16 24 40 / 0.05);
+            transition: box-shadow 150ms ease;
+        }
+        @media (min-width: 768px) { .field { font-size: 15px; } }
+        .field::placeholder {
+            font-family: ui-sans-serif, system-ui, sans-serif;
+            font-weight: 400; letter-spacing: normal; color: #7c8698;
+        }
+        .field:focus { outline: none; box-shadow: 0 0 0 1px var(--blue), 0 0 0 4px rgb(37 99 235 / 0.15); }
+        .field[aria-invalid="true"] { box-shadow: 0 0 0 1px #dc2626, 0 0 0 4px rgb(220 38 38 / 0.12); }
+        .field-count {
+            position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+            font-size: 11px; font-weight: 600; color: #7c8698;
+            font-variant-numeric: tabular-nums; pointer-events: none;
+            transition: color 150ms ease;
+        }
+        .field-count[data-full] { color: var(--blue); }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-4px); }
+            40% { transform: translateX(4px); }
+            60% { transform: translateX(-3px); }
+            80% { transform: translateX(3px); }
+        }
+        .shake { animation: shake 0.35s ease; }
+
+        /* ---------- Sidebar ---------- */
+        #fileList, #recentList { scrollbar-width: thin; scrollbar-color: #c7d7f5 transparent; }
+        .section-label {
+            display: flex; align-items: center; gap: 8px;
+            font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+            font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+        }
+        .count-badge {
+            font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+            padding: 2px 8px; border-radius: 999px;
+            background: #eff6ff; color: var(--blue-hover);
+            box-shadow: inset 0 0 0 1px #dbeafe;
+        }
+
+        .file-row {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px;
+            border-radius: 12px;
+            background: rgb(255 255 255 / 0.72);
+            box-shadow: 0 0 0 1px #dbeafe;
+            transition: background-color 150ms ease, box-shadow 150ms ease;
+            animation: rise-in 300ms var(--ease-out) backwards;
+            animation-delay: calc(min(var(--i, 0), 8) * 35ms);
+        }
+        .file-row:not(:last-child) { margin-bottom: 6px; }
+        .file-row.is-new { animation: rise-in 300ms var(--ease-out) backwards, row-flash 1.8s ease-out 250ms backwards; }
+        .file-row[data-armed] { background: #fff; box-shadow: 0 0 0 1px #fecaca; }
+        .file-row[data-armed] .icon-btn-danger { background-color: #dc2626; color: #fff; }
+        @media (hover: hover) and (pointer: fine) {
+            .file-row:hover { background: #fff; box-shadow: 0 0 0 1px var(--ring-strong), 0 2px 8px -2px rgb(16 24 40 / 0.08); }
+            .file-row[data-armed] .icon-btn-danger:hover { background-color: #b91c1c; color: #fff; }
+        }
+        @keyframes row-flash { from { background-color: #dbeafe; } }
+
+        .file-thumb {
+            position: relative; flex-shrink: 0;
+            display: grid; place-items: center;
+            width: 40px; height: 40px; border-radius: 9px; overflow: hidden;
+        }
+        .file-thumb::after {
+            content: ''; position: absolute; inset: 0; border-radius: inherit;
+            box-shadow: inset 0 0 0 1px rgb(15 23 42 / 0.08);
+        }
+        .file-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+        .file-sub { display: grid; }
+        .file-sub > p {
+            grid-area: 1 / 1;
+            font-size: 11.5px; line-height: 1.5; font-variant-numeric: tabular-nums;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            transition: opacity 150ms ease, transform 150ms var(--ease-out);
+        }
+        .file-meta { color: #6b7280; }
+        .file-meta.is-stale { color: #b45309; }
+        .file-confirm { color: #dc2626; font-weight: 600; opacity: 0; transform: translateY(4px); }
+        .file-row[data-armed] .file-meta { opacity: 0; transform: translateY(-4px); }
+        .file-row[data-armed] .file-confirm { opacity: 1; transform: none; }
+
+        .recent-item {
+            display: flex; align-items: center; justify-content: space-between; gap: 8px;
+            width: 100%; padding: 8px 10px; border-radius: 9px;
+            text-align: left; cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: background-color 150ms ease, box-shadow 150ms ease, transform 160ms var(--ease-out);
+        }
+        .recent-item:active { transform: scale(0.98); }
+        .recent-item[aria-current="true"] { background: #eff6ff; box-shadow: inset 0 0 0 1px #dbeafe; }
+        .recent-cta { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; color: var(--blue); }
+        .recent-cta svg { transition: transform 200ms var(--ease-out); }
+        @media (hover: hover) and (pointer: fine) {
+            .recent-item:hover { background: #eff6ff; }
+            .recent-item:hover .recent-cta svg { transform: translateX(2px); }
+        }
+
+        /* ---------- Hero ---------- */
+        /* Sized by the column it sits in, not the viewport: with the sidebar open, a 900px-wide
+           window leaves the column narrower than a phone in landscape. */
+        .hero-copy { container-type: inline-size; }
+        .headline {
+            font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+            font-size: 2.15rem; line-height: 1.04; letter-spacing: -0.035em;
+            text-align: center; color: var(--ink);
+        }
+        .headline-line { display: block; }
+        .headline-accent {
+            background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        @container (min-width: 480px) { .headline { font-size: 2.5rem; } }
+        @container (min-width: 560px) {
+            .headline { font-size: 2.75rem; }
+            .headline-line--pair { display: inline; }
+        }
+        @container (min-width: 660px) { .headline { font-size: 3.3rem; } }
+
+        .enter {
+            animation: rise-in 520ms var(--ease-out) backwards;
+            animation-delay: calc(var(--d, 0) * 70ms);
+        }
+        @keyframes rise-in { from { opacity: 0; transform: translateY(10px); } }
+
+        /* ---------- Drop zone ---------- */
+        .dropzone {
+            position: relative;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr); /* long file names must truncate, not widen the zone */
+            padding: 44px 24px;
+            border-radius: 20px;
+            text-align: center;
+            cursor: pointer;
+            background: linear-gradient(180deg, rgb(255 255 255 / 0.8), rgb(239 246 255 / 0.95));
+            box-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 16px 40px -20px rgb(37 99 235 / 0.35);
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 200ms var(--ease-out), box-shadow 200ms ease, background-color 200ms ease;
+        }
+        .dropzone:focus-visible { outline-offset: 4px; }
+        .dz-border {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            overflow: visible; pointer-events: none;
+        }
+        .dz-border rect {
+            fill: none; stroke: #93c5fd; stroke-width: 2;
+            stroke-dasharray: 8 6;
+            transition: stroke 200ms ease;
+        }
+        @media (hover: hover) and (pointer: fine) {
+            .dropzone[data-state="idle"]:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 20px 44px -18px rgb(37 99 235 / 0.45); }
+            .dropzone[data-state="idle"]:hover .dz-border rect { stroke: #60a5fa; }
+            .dropzone[data-state="idle"]:hover .dz-icon { transform: translateY(-2px); }
+        }
+        .dropzone[data-state="idle"]:active { transform: scale(0.99); }
+        .dropzone[data-state="dragging"] {
+            transform: scale(1.01);
+            background: linear-gradient(180deg, rgb(239 246 255 / 0.95), rgb(219 234 254 / 0.95));
+            box-shadow: 0 0 0 4px rgb(37 99 235 / 0.12), 0 24px 48px -20px rgb(37 99 235 / 0.5);
+        }
+        .dropzone[data-state="dragging"] .dz-border rect {
+            stroke: var(--blue);
+            animation: march 600ms linear infinite;
+        }
+        .dropzone[data-state="dragging"] .dz-icon { transform: translateY(-4px) scale(1.06); }
+        .dropzone[data-state="uploading"] { cursor: default; }
+        @keyframes march { to { stroke-dashoffset: -14; } }
+
+        .dz-icon {
+            display: grid; place-items: center;
+            width: 56px; height: 56px; margin: 0 auto 14px;
+            border-radius: 16px;
+            background: #fff; color: var(--blue);
+            box-shadow: 0 0 0 1px #dbeafe, 0 8px 20px -8px rgb(37 99 235 / 0.45);
+            transition: transform 250ms var(--ease-out);
+        }
+
+        .dz-stack { display: grid; grid-template-columns: minmax(0, 1fr); }
+        .dz-stack > * {
+            grid-area: 1 / 1;
+            min-width: 0;
+            transition: opacity 220ms ease, transform 220ms var(--ease-out), filter 220ms ease, visibility 220ms;
+        }
+        .dz-busy { display: flex; align-items: center; justify-content: center; }
+        .dropzone:not([data-state="uploading"]) .dz-busy,
+        .dropzone[data-state="uploading"] .dz-idle {
+            opacity: 0; visibility: hidden; filter: blur(2px);
+        }
+        .dropzone:not([data-state="uploading"]) .dz-busy { transform: translateY(8px); }
+        .dropzone[data-state="uploading"] .dz-idle { transform: translateY(-8px); }
+
+        .dz-when-drag { display: none; }
+        .dropzone[data-state="dragging"] .dz-when-idle { display: none; }
+        .dropzone[data-state="dragging"] .dz-when-drag { display: inline; }
+
+        .pointer-coarse { display: none; }
+        @media (pointer: coarse) {
+            .pointer-fine { display: none; }
+            .pointer-coarse { display: inline; }
+        }
+
+        .progress-track {
+            position: relative; height: 6px; border-radius: 999px;
+            background: #dbeafe; overflow: hidden;
+        }
+        .progress-bar {
+            position: absolute; inset: 0; border-radius: inherit;
+            background: var(--blue);
+            transform: translateX(-100%);
+            transition: transform 200ms linear;
+        }
+        .progress-track[data-processing] .progress-bar::after {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+            animation: shimmer 1.1s linear infinite;
+        }
+        @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+        /* ---------- Passkey reveal ---------- */
+        .reveal-card {
+            display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+            margin-top: 16px; padding: 14px 16px;
+            border-radius: 16px;
+            background: #fff;
+            box-shadow: 0 0 0 1px #bbf7d0, 0 12px 32px -18px rgb(5 150 105 / 0.45);
+            transition: opacity 300ms ease, transform 400ms var(--ease-out);
+        }
+        @starting-style {
+            .reveal-card { opacity: 0; transform: translateY(8px) scale(0.98); }
+        }
+        .reveal-check {
+            display: grid; place-items: center; flex-shrink: 0;
+            width: 36px; height: 36px; border-radius: 999px;
+            background: #ecfdf5; color: #059669;
+            box-shadow: inset 0 0 0 1px #bbf7d0;
+        }
+        .passkey-code {
+            font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+            font-size: 26px; line-height: 1.15; letter-spacing: 0.14em;
+            color: var(--blue); font-variant-numeric: tabular-nums;
+        }
+        .passkey-char {
+            display: inline-block;
+            animation: char-in 420ms var(--ease-out) backwards;
+            animation-delay: calc(var(--i) * 45ms + 120ms);
+        }
+        @keyframes char-in { from { opacity: 0; transform: translateY(8px); filter: blur(3px); } }
+
+        .swap { display: grid; }
+        .swap > * {
+            grid-area: 1 / 1;
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            transition: opacity 200ms ease, transform 200ms var(--ease-out), filter 200ms ease;
+        }
+        .swap-b { opacity: 0; transform: scale(0.8); filter: blur(2px); }
+        [data-state="copied"] .swap-a { opacity: 0; transform: scale(0.8); filter: blur(2px); }
+        [data-state="copied"] .swap-b { opacity: 1; transform: none; filter: none; }
+        .btn[data-state="copied"] { color: #059669; }
+
+        /* ---------- Content cards ---------- */
+        .pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 7px 13px; border-radius: 999px;
+            background: rgb(255 255 255 / 0.85);
+            box-shadow: 0 0 0 1px #dbeafe;
+            font-size: 12px; font-weight: 500; color: #4b5563;
+        }
+        .feature-card {
+            padding: 18px; border-radius: 16px;
+            background: rgb(255 255 255 / 0.8);
+            box-shadow: 0 0 0 1px #dbeafe, 0 1px 2px rgb(16 24 40 / 0.04);
+        }
+
+        /* ---------- GitHub pill ---------- */
+        .gh-pill {
+            position: relative; isolation: isolate;
+            display: inline-flex; flex-shrink: 0;
+            border-radius: 999px;
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 160ms var(--ease-out);
+            animation: gh-in 600ms var(--ease-out) 350ms backwards;
+        }
+        .gh-pill:active { transform: scale(0.96); }
+        .gh-layer {
+            display: inline-flex; align-items: center; gap: 7px;
+            height: 34px; padding: 0 12px 0 7px;
+            border-radius: inherit;
+            font-size: 13px; font-weight: 600;
+        }
+        .gh-base {
+            position: relative; overflow: hidden;
+            background: rgb(255 255 255 / 0.8); color: var(--ink);
+            box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgb(16 24 40 / 0.06);
+        }
+        /* One-time shine across the pill after the page settles. */
+        .gh-base::after {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(105deg, transparent 35%, rgb(37 99 235 / 0.16) 50%, transparent 65%);
+            transform: translateX(-100%);
+            animation: gh-shine 1100ms var(--ease-in-out) 1300ms;
+            pointer-events: none;
+        }
+        /* Dark copy of the pill revealed with clip-path, so text and icon colours swap in one motion. */
+        .gh-fill {
+            position: absolute; inset: 0;
+            background: var(--ink); color: #fff;
+            clip-path: circle(0px at 17px 50%);
+            transition: clip-path 280ms var(--ease-out);
+        }
+        .gh-mark { display: block; width: 20px; height: 20px; }
+        .gh-mark-wave { display: inline-flex; animation: gh-wave 900ms ease-in-out 1200ms; }
+        .gh-mark svg { width: 20px; height: 20px; transition: transform 450ms var(--ease-spring); }
+        .gh-arrow { width: 14px; height: 14px; opacity: 0.55; transition: transform 250ms var(--ease-out), opacity 200ms ease; }
+        .gh-fill .gh-arrow { opacity: 1; }
+        @media (hover: hover) and (pointer: fine) {
+            .gh-pill:hover .gh-fill { clip-path: circle(160% at 17px 50%); transition-duration: 480ms; }
+            .gh-pill:hover .gh-mark svg { transform: rotate(-14deg) scale(1.12); }
+            .gh-pill:hover .gh-arrow { transform: translate(2px, -2px); }
+        }
+        .gh-pill:focus-visible .gh-fill { clip-path: circle(160% at 17px 50%); }
+
+        @keyframes gh-in { from { opacity: 0; transform: translateY(6px); } }
+        @keyframes gh-shine { to { transform: translateX(100%); } }
+        @keyframes gh-wave {
+            0%, 100% { transform: rotate(0); }
+            20% { transform: rotate(-16deg); }
+            40% { transform: rotate(12deg); }
+            60% { transform: rotate(-8deg); }
+            80% { transform: rotate(4deg); }
+        }
+
+        /* ---------- Guide dialog ---------- */
+        .guide-dialog {
+            width: min(28rem, calc(100vw - 24px));
+            max-width: none;
+            max-height: min(85dvh, 720px);
+            margin: auto; padding: 0; border: 0;
+            background: transparent;
+            overflow: visible;
+            opacity: 0;
+            transform: scale(0.96) translateY(4px);
+            transition-property: opacity, transform, overlay, display;
+            transition-duration: 150ms;
+            transition-timing-function: var(--ease-out);
+            transition-behavior: allow-discrete;
+        }
+        .guide-dialog[open] { opacity: 1; transform: none; transition-duration: 220ms; }
+        @starting-style {
+            .guide-dialog[open] { opacity: 0; transform: scale(0.96) translateY(4px); }
+        }
+        .guide-dialog::backdrop {
+            background-color: rgb(15 23 42 / 0);
+            backdrop-filter: blur(0);
+            transition-property: background-color, backdrop-filter, overlay, display;
+            transition-duration: 200ms;
+            transition-behavior: allow-discrete;
+        }
+        .guide-dialog[open]::backdrop { background-color: rgb(15 23 42 / 0.4); backdrop-filter: blur(4px); }
+        @starting-style {
+            .guide-dialog[open]::backdrop { background-color: rgb(15 23 42 / 0); backdrop-filter: blur(0); }
+        }
+        html:has(.guide-dialog[open]) { overflow: hidden; }
+        .guide-panel {
+            max-height: inherit; overflow-y: auto; overscroll-behavior: contain;
+            border-radius: 18px; background: #fff;
+            box-shadow: 0 0 0 1px #dbeafe, 0 24px 64px -16px rgb(15 23 42 / 0.35);
+        }
+        .step-num {
+            display: grid; place-items: center; flex-shrink: 0;
+            width: 28px; height: 28px; border-radius: 999px;
+            background: var(--blue); color: #fff; font-size: 12px; font-weight: 700;
+            box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2);
+        }
+
+        /* ---------- Toasts ---------- */
+        .toaster {
+            position: fixed; z-index: 60;
+            left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom));
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            pointer-events: none;
+        }
+        @media (min-width: 768px) {
+            .toaster { left: auto; right: 24px; bottom: 72px; width: 360px; align-items: stretch; }
+        }
+        .toast {
+            pointer-events: auto;
+            display: flex; align-items: flex-start; gap: 10px;
+            width: 100%; max-width: 360px;
+            padding: 12px 14px; border-radius: 12px;
+            background: #fff;
+            box-shadow: 0 0 0 1px #e2e8f0, 0 12px 32px -12px rgb(15 23 42 / 0.3);
+            font-size: 13px; line-height: 1.45;
+            cursor: default;
+            transition: opacity 400ms ease, transform 400ms ease;
+        }
+        @starting-style {
+            .toast { opacity: 0; transform: translateY(100%); }
+        }
+        .toast[data-leaving] { opacity: 0; transform: translateY(6px) scale(0.98); transition-duration: 200ms; }
+        .toast-icon { flex-shrink: 0; width: 18px; height: 18px; margin-top: 1px; }
+        .toast-title { font-weight: 600; color: var(--ink); }
+        .toast-desc { color: #6b7280; margin-top: 1px; overflow-wrap: anywhere; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ---------- Theme toggle ---------- */
+        .theme-toggle { width: 40px; padding: 0; }
+        .theme-toggle-sm { width: 34px; height: 34px; border-radius: 9px; }
+        .theme-icons { display: grid; place-items: center; }
+        .theme-icons > svg {
+            grid-area: 1 / 1; width: 18px; height: 18px;
+            transition: opacity 200ms ease, transform 400ms var(--ease-out), filter 200ms ease;
+        }
+        .theme-sun { opacity: 0; transform: rotate(-90deg) scale(0.5); filter: blur(2px); }
+        html.dark .theme-moon { opacity: 0; transform: rotate(90deg) scale(0.5); filter: blur(2px); }
+        html.dark .theme-sun { opacity: 1; transform: none; filter: none; }
+
+        /* Switching themes reveals the new one in a circle from the toggle (animated in JS). */
+        ::view-transition-old(root),
+        ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+
+        /* ---------- Dark-only layers: hidden (and never rendered) in light mode ---------- */
+        .aura-dark, .laser { display: none; }
+        html.dark .aura-light { display: none; }
+        html.dark .aura-dark { display: block; }
+        html.dark .hero-host { position: relative; }
+        /* The beam paints first; the headline and drop zone are positioned later in the DOM,
+           so they (and all their text) sit in front of it. */
+        html.dark .laser {
+            display: block;
+            position: absolute; left: 0; top: 0;
+            width: 100%;
+            pointer-events: none;
+        }
+        html.dark .hero-copy { position: relative; }
+        /* Lower the drop zone so the beam has a longer run before it lands. */
+        html.dark .dropzone { margin-top: 4rem; }
+        @media (min-width: 768px) { html.dark .dropzone { margin-top: 5.5rem; } }
+
+        /* =====================================================================
+           DARK MODE — every rule below is scoped to html.dark, so light mode
+           renders exactly as before.
+           ===================================================================== */
+        html.dark {
+            color-scheme: dark;
+            --ink: #e6ebf4;
+            --ring: rgb(148 180 255 / 0.16);
+            --ring-strong: rgb(148 180 255 / 0.32);
+            --line: rgb(148 180 255 / 0.14);
+            --soft: #b6c0cf;
+            --muted: #8f9aac;
+            --blue-text: #6ea8fe;
+            --panel: #111726;
+        }
+        html.dark body { background-color: #100e0b; }
+        html.dark ::selection { background: rgb(59 130 246 / 0.4); color: #fff; }
+        html.dark .skip-link { background: #f1f5f9; color: #0f172a; }
+
+        /* Tailwind colour utilities used in the markup */
+        html.dark .text-ink { color: var(--ink); }
+        html.dark .text-ink-soft { color: var(--soft); }
+        html.dark .text-ink-muted { color: var(--muted); }
+        html.dark .text-blueprimary { color: var(--blue-text); }
+        html.dark .text-greenc { color: #34d399; }
+        html.dark .text-redc { color: #f87171; }
+        html.dark .text-purplec { color: #a78bfa; }
+        html.dark .text-amberc { color: #fbbf24; }
+        html.dark .text-\[\#b9d0f5\] { color: rgb(110 168 254 / 0.45); }
+        html.dark .border-linec { border-color: var(--line); }
+        html.dark .bg-bluelight { background-color: rgb(59 130 246 / 0.14); }
+        html.dark .bg-greenlight { background-color: rgb(16 185 129 / 0.14); }
+        html.dark .bg-redlight { background-color: rgb(239 68 68 / 0.14); }
+        html.dark .bg-purplelight { background-color: rgb(139 92 246 / 0.16); }
+        html.dark .bg-amberlight { background-color: rgb(245 158 11 / 0.14); }
+        html.dark .bg-slate-100 { background-color: rgb(255 255 255 / 0.06); }
+        html.dark .bg-white { background-color: var(--panel); }
+        html.dark .bg-white\/70 { background-color: rgb(17 24 39 / 0.6); }
+        html.dark .shadow-\[0_0_0_1px_\#dbeafe\] { box-shadow: 0 0 0 1px var(--line); }
+        html.dark .text-white.opacity-70 { color: #6ea8fe; opacity: 0.07; } /* big cloud on the share card */
+
+        /* Brand + headline */
+        html.dark .filenest-3d {
+            filter:
+                    drop-shadow(1px 1px 0 #1d4ed8)
+                    drop-shadow(1px 1px 0 #1e3a8a)
+                    drop-shadow(0 0 10px rgb(59 130 246 / 0.45));
+        }
+        html.dark .filenest-3d > span { background-image: linear-gradient(180deg, #e0edff 0%, #93c5fd 45%, #3b82f6 100%); }
+        html.dark .brand-tagline { color: var(--muted); }
+        html.dark .headline-accent { background-image: linear-gradient(180deg, #a5cdff 0%, #3b82f6 100%); }
+
+        /* Buttons */
+        html.dark .btn-primary {
+            --btn-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), 0 0 0 1px #3b82f6, 0 6px 20px -6px rgb(59 130 246 / 0.65);
+        }
+        html.dark .btn-secondary {
+            --btn-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgb(0 0 0 / 0.3);
+            background-color: rgb(255 255 255 / 0.06);
+        }
+        html.dark .btn[data-state="copied"] { color: #34d399; }
+        html.dark .link-btn { color: var(--blue-text); }
+        html.dark .icon-btn { color: var(--soft); }
+        @media (hover: hover) and (pointer: fine) {
+            html.dark .btn-primary:hover:not(:disabled) {
+                background-color: #3b82f6;
+                --btn-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), 0 0 0 1px #60a5fa, 0 8px 24px -6px rgb(59 130 246 / 0.75);
+            }
+            html.dark .btn-secondary:hover:not(:disabled) {
+                background-color: rgb(255 255 255 / 0.1);
+                --btn-shadow: 0 0 0 1px var(--ring-strong), 0 1px 2px rgb(0 0 0 / 0.3);
+            }
+            html.dark .link-btn:hover { color: #93c5fd; background-color: rgb(59 130 246 / 0.14); }
+            html.dark .icon-btn:hover { background-color: rgb(255 255 255 / 0.08); color: #93c5fd; }
+            html.dark .icon-btn-danger:hover { background-color: rgb(248 113 113 / 0.14); color: #f87171; }
+        }
+
+        /* Passkey input */
+        html.dark .field {
+            background: rgb(255 255 255 / 0.05);
+            box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgb(0 0 0 / 0.25);
+        }
+        html.dark .field::placeholder { color: #6f7b8e; }
+        html.dark .field:focus { box-shadow: 0 0 0 1px #3b82f6, 0 0 0 4px rgb(59 130 246 / 0.25); }
+        html.dark .field[aria-invalid="true"] { box-shadow: 0 0 0 1px #f87171, 0 0 0 4px rgb(248 113 113 / 0.2); }
+        html.dark .field-count { color: #6f7b8e; }
+        html.dark .field-count[data-full] { color: var(--blue-text); }
+
+        /* Sidebar */
+        html.dark #fileList, html.dark #recentList { scrollbar-color: rgb(110 168 254 / 0.3) transparent; }
+        html.dark .count-badge {
+            background: rgb(59 130 246 / 0.16); color: #93c5fd;
+            box-shadow: inset 0 0 0 1px rgb(59 130 246 / 0.3);
+        }
+        html.dark .file-row { background: rgb(255 255 255 / 0.04); box-shadow: 0 0 0 1px var(--line); }
+        html.dark .file-row.is-new { animation-name: rise-in, row-flash-dark; }
+        html.dark .file-row[data-armed] { background: rgb(248 113 113 / 0.06); box-shadow: 0 0 0 1px rgb(248 113 113 / 0.45); }
+        @keyframes row-flash-dark { from { background-color: rgb(59 130 246 / 0.3); } }
+        html.dark .file-thumb::after { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08); }
+        html.dark .file-meta { color: var(--muted); }
+        html.dark .file-meta.is-stale { color: #fbbf24; }
+        html.dark .file-confirm { color: #f87171; }
+        html.dark .recent-item[aria-current="true"] { background: rgb(59 130 246 / 0.14); box-shadow: inset 0 0 0 1px rgb(59 130 246 / 0.3); }
+        html.dark .recent-cta { color: var(--blue-text); }
+        @media (hover: hover) and (pointer: fine) {
+            html.dark .file-row:hover { background: rgb(255 255 255 / 0.07); box-shadow: 0 0 0 1px var(--ring-strong), 0 2px 8px -2px rgb(0 0 0 / 0.4); }
+            html.dark .recent-item:not([aria-current="true"]):hover { background: rgb(255 255 255 / 0.06); }
+        }
+
+        /* Drop zone */
+        html.dark .dropzone {
+            background: linear-gradient(180deg, rgb(15 23 42 / 0.55), rgb(8 14 30 / 0.8));
+            box-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 20px 50px -24px rgb(37 99 235 / 0.55);
+        }
+        html.dark .dz-border rect { stroke: rgb(96 165 250 / 0.45); }
+        html.dark .dz-icon {
+            background: rgb(255 255 255 / 0.06); color: #93c5fd;
+            box-shadow: 0 0 0 1px rgb(96 165 250 / 0.3), 0 8px 24px -8px rgb(59 130 246 / 0.6);
+        }
+        html.dark .dropzone[data-state="dragging"] {
+            background: linear-gradient(180deg, rgb(30 58 138 / 0.45), rgb(15 23 42 / 0.8));
+            box-shadow: 0 0 0 4px rgb(59 130 246 / 0.25), 0 24px 56px -20px rgb(59 130 246 / 0.7);
+        }
+        html.dark .dropzone[data-state="dragging"] .dz-border rect { stroke: #60a5fa; }
+        @media (hover: hover) and (pointer: fine) {
+            html.dark .dropzone[data-state="idle"]:hover { box-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 24px 56px -22px rgb(59 130 246 / 0.7); }
+            html.dark .dropzone[data-state="idle"]:hover .dz-border rect { stroke: #60a5fa; }
+        }
+        html.dark .progress-track { background: rgb(59 130 246 / 0.2); }
+        html.dark .progress-bar { background: #3b82f6; }
+
+        /* Passkey card, pills, cards */
+        html.dark .reveal-card {
+            background: rgb(17 24 39 / 0.75);
+            box-shadow: 0 0 0 1px rgb(52 211 153 / 0.35), 0 16px 40px -20px rgb(16 185 129 / 0.45);
+        }
+        html.dark .reveal-check { background: rgb(16 185 129 / 0.14); color: #34d399; box-shadow: inset 0 0 0 1px rgb(52 211 153 / 0.35); }
+        html.dark .passkey-code { color: #93c5fd; }
+        html.dark .pill { background: rgb(255 255 255 / 0.05); box-shadow: 0 0 0 1px var(--line); color: var(--soft); }
+        html.dark .feature-card { background: rgb(17 24 39 / 0.55); box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgb(0 0 0 / 0.3); }
+
+        /* GitHub pill: the hover fill flips to light so it still contrasts */
+        html.dark .gh-base { background: rgb(255 255 255 / 0.06); box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgb(0 0 0 / 0.3); }
+        html.dark .gh-base::after { background: linear-gradient(105deg, transparent 35%, rgb(96 165 250 / 0.3) 50%, transparent 65%); }
+        html.dark .gh-fill { background: #f1f5f9; color: #0f172a; }
+
+        /* Guide dialog + toasts */
+        html.dark .guide-panel { background: var(--panel); box-shadow: 0 0 0 1px var(--line), 0 24px 64px -16px rgb(0 0 0 / 0.7); }
+        html.dark .guide-dialog[open]::backdrop { background-color: rgb(0 0 0 / 0.55); }
+        html.dark .toast { background: #151c2c; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 16px 40px -12px rgb(0 0 0 / 0.7); }
+        html.dark .toast-desc { color: var(--muted); }
+
+        /* ---------- Reduced motion: keep fades, drop movement ---------- */
+        @media (prefers-reduced-motion: reduce) {
+            .enter, .file-row, .passkey-char, .gh-pill, .gh-mark-wave, .gh-base::after, .shake { animation: none !important; }
+            .file-row.is-new { animation: row-flash 1.8s ease-out 250ms backwards !important; }
+            .btn:active:not(:disabled), .icon-btn:active:not(:disabled), .link-btn:active,
+            .recent-item:active, .gh-pill:active, .dropzone[data-state] { transform: none !important; }
+            .dropzone .dz-icon, .dz-stack > *, .gh-mark svg, .gh-arrow, .recent-cta svg { transform: none !important; }
+            .dz-border rect { animation: none !important; }
+            .reveal-card, .toast, .guide-dialog { transform: none !important; }
+            .gh-fill { clip-path: none !important; opacity: 0; transition: opacity 200ms ease; }
+            .gh-pill:hover .gh-fill, .gh-pill:focus-visible .gh-fill { opacity: 1; }
+            html.dark .file-row.is-new { animation: row-flash-dark 1.8s ease-out 250ms backwards !important; }
+            .theme-icons > svg { transform: none !important; }
+        }
+    </style>
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -26,677 +828,1025 @@
                         purplelight: '#f5f3ff',
                         amberc: '#b45309',
                         amberlight: '#fffbeb',
+                        ink: { DEFAULT: '#16181d', soft: '#4b5563', muted: '#6b7280' },
                     }
                 }
             }
         }
     </script>
-    <style>
-        .filenest-3d {
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 800;
-            background: linear-gradient(180deg, #bfdbfe 0%, #3b82f6 55%, #1d4ed8 100%);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-            text-shadow:
-                    1px 1px 0 #1e40af,
-                    2px 2px 0 #1e40af,
-                    3px 3px 0 #1e3a8a,
-                    4px 5px 8px rgba(30, 58, 138, 0.35);
-            letter-spacing: -0.01em;
-        }
-
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            20% { transform: translateX(-4px); }
-            40% { transform: translateX(4px); }
-            60% { transform: translateX(-3px); }
-            80% { transform: translateX(3px); }
-        }
-        .shake { animation: shake 0.35s ease; }
-
-        /* =========================
-   MOBILE RESPONSIVE FIX
-   ========================= */
-
-        @media (max-width: 767px) {
-
-            body {
-                height: auto !important;
-                min-height: 100vh;
-                overflow-x: hidden !important;
-                overflow-y: auto !important;
-            }
-
-            #navbar {
-                height: auto !important;
-                min-height: 72px;
-                padding: 12px 16px !important;
-                gap: 12px;
-                flex-wrap: wrap;
-            }
-
-            #navbar > div:first-child {
-                min-width: 0;
-            }
-
-            .filenest-3d {
-                font-size: 1.35rem;
-            }
-
-            #navbar > div:last-child {
-                width: 100%;
-                display: grid;
-                grid-template-columns: 1fr 1fr 1fr;
-                gap: 6px;
-            }
-
-            #navbar > div:last-child button {
-                justify-content: center;
-                padding: 9px 6px !important;
-                font-size: 12px !important;
-            }
-
-            #passkeyBar {
-                padding: 12px 16px !important;
-                flex-direction: column;
-                align-items: stretch !important;
-                gap: 8px !important;
-            }
-
-            #passkeyBar button {
-                width: 100%;
-            }
-
-            #privacyBanner {
-                padding: 10px 16px !important;
-                align-items: flex-start !important;
-            }
-
-            #privacyBanner span {
-                line-height: 1.4;
-            }
-
-            #mainBody {
-                flex-direction: column !important;
-                overflow: visible !important;
-            }
-
-            #mainBody > div:first-child {
-                width: 100% !important;
-                height: auto !important;
-                max-height: none !important;
-                border-right: 0 !important;
-                border-bottom: 1px solid #dbeafe;
-                overflow: visible !important;
-            }
-
-            #fileList {
-                max-height: 220px !important;
-                overflow-y: auto !important;
-            }
-
-            #recentList {
-                max-height: 150px;
-                overflow-y: auto;
-            }
-
-            #recentList + div {
-                margin-top: 12px !important;
-                margin-bottom: 12px !important;
-            }
-
-            #mainBody > div:last-child {
-                width: 100%;
-                overflow: visible !important;
-            }
-
-            #mainBody > div:last-child > div {
-                padding: 20px 16px !important;
-            }
-
-            #dropZone {
-                padding: 32px 16px !important;
-                border-radius: 16px !important;
-            }
-
-            #dropZone .font-display {
-                font-size: 1rem !important;
-            }
-
-            #dropZone .text-sm {
-                font-size: 13px !important;
-            }
-
-            #passkeyDisplay {
-                align-items: center;
-                padding: 12px !important;
-            }
-
-            #passkeyValue {
-                font-size: 1.35rem !important;
-            }
-
-            #mainBody > div:last-child > div > div:nth-of-type(2) {
-                gap: 6px !important;
-            }
-
-            .grid.grid-cols-1.sm\:grid-cols-3 {
-                grid-template-columns: 1fr !important;
-            }
-
-            .grid.grid-cols-1.sm\:grid-cols-3 > div {
-                padding: 14px !important;
-            }
-
-            .relative.overflow-hidden.bg-bluelight {
-                padding: 16px !important;
-                gap: 12px !important;
-            }
-
-            #siteFooter {
-                padding: 12px 16px !important;
-                gap: 10px;
-                flex-wrap: wrap;
-            }
-
-            #siteFooter > div:first-child {
-                flex-wrap: wrap;
-                line-height: 1.4;
-            }
-
-            #siteFooter > a {
-                margin-left: auto;
-            }
-
-            #guideModal {
-                padding: 12px !important;
-            }
-
-            #guideModal > div {
-                max-height: 90vh !important;
-                border-radius: 16px !important;
-            }
-
-            #guideModal .px-6 {
-                padding-left: 18px !important;
-                padding-right: 18px !important;
-            }
-
-            #fileList > div {
-                min-width: 0;
-            }
-
-            #fileList a,
-            #fileList button {
-                flex-shrink: 0;
-            }
-        }
-
-        @media (max-width: 420px) {
-
-            .filenest-3d {
-                font-size: 1.2rem;
-            }
-
-            #navbar > div:last-child button {
-                font-size: 11px !important;
-                padding: 8px 4px !important;
-            }
-
-            #dropZone {
-                padding: 26px 12px !important;
-            }
-
-            #dropZone svg {
-                width: 36px !important;
-                height: 36px !important;
-            }
-
-            .grid.grid-cols-1.sm\:grid-cols-3 > div {
-                padding: 13px !important;
-            }
-
-            #siteFooter {
-                font-size: 11px !important;
-            }
-        }
-    </style>
 </head>
-<body class="bg-[#faf8f2] text-[#16181d] font-sans h-screen flex flex-col overflow-hidden">
+<body class="bg-[#faf8f2] text-ink font-sans antialiased min-h-dvh md:h-dvh md:overflow-hidden flex flex-col">
+
+<a href="#main" class="skip-link">Skip to content</a>
 
 <!-- Arctic Frost - Aura background, wraps all page content -->
-<div class="relative overflow-hidden flex-1 flex flex-col min-h-0">
+<div class="relative overflow-hidden flex-1 flex flex-col md:min-h-0">
     <!-- Layer 1 -->
-    <div class="absolute inset-0 pointer-events-none blur-[90px] md:blur-[130px]"
+    <div class="aura-light absolute inset-0 pointer-events-none blur-[90px] md:blur-[130px]"
          style="background: linear-gradient(rgba(0,0,0,0) 0%, rgba(200,230,255,0.12) 28%, rgb(255,255,255) 18%, rgb(150,200,255) 68%, rgb(100,130,200) 100%); mix-blend-mode: multiply" aria-hidden="true"></div>
     <!-- Layer 2 -->
-    <div class="absolute inset-0 pointer-events-none blur-[90px] md:blur-[130px]"
+    <div class="aura-light absolute inset-0 pointer-events-none blur-[90px] md:blur-[130px]"
          style="background: linear-gradient(rgba(0,0,0,0) 0%, rgba(200,230,255,0.22) 34%, rgb(255,255,255) 66%, rgb(150,200,255) 82%, rgb(100,130,200) 100%); mix-blend-mode: multiply" aria-hidden="true"></div>
 
+    <!-- Diamond Storm - Aura (lattice), dark mode only -->
+    <!-- Layer 1 -->
+    <div class="aura-dark absolute inset-0 pointer-events-none"
+         style="background: radial-gradient(55.8% 55.49% at 50% 100%, rgb(20,60,120) 0%, rgba(10,30,80,0) 100%); mix-blend-mode: screen" aria-hidden="true"></div>
+    <!-- Layer 2 -->
+    <div class="aura-dark absolute inset-0 pointer-events-none blur-[75px] md:blur-[108px] opacity-90"
+         style="background:
+          repeating-linear-gradient(
+            100deg,
+            #041022 0%,
+            #041022 3%,
+            rgba(20, 60, 120, 0.7) 5%,
+            rgba(20, 60, 120, 0.7) 7%,
+            transparent 10%,
+            transparent 12%,
+            rgba(20, 60, 120, 0.7) 14%,
+            #041022 16%
+          ),
+          repeating-linear-gradient(
+            100deg,
+            #b3e5ff 0%,
+            #b3e5ff 1.5%,
+            rgba(179, 229, 255, 0.8) 2%,
+            #2563eb 3%,
+            #2563eb 4%,
+            rgba(179, 229, 255, 0.8) 4.5%,
+            #b3e5ff 5%
+          )
+        ; background-size: 300% 200%; mix-blend-mode: screen" aria-hidden="true"></div>
+    <!-- Layer 3 -->
+    <div class="aura-dark absolute inset-0 pointer-events-none"
+         style="background: radial-gradient(ellipse at 100% 100%, #ffffff 20%, #00030a 80%); mix-blend-mode: multiply" aria-hidden="true"></div>
+
     <!-- Content wrapper - above the blur layers -->
-    <div class="relative z-[1] flex-1 flex flex-col overflow-hidden min-h-0">
+    <div class="relative z-[1] flex-1 flex flex-col md:min-h-0">
 
         <!-- NAVBAR -->
-        <div id="navbar" class="h-[72px] shrink-0 border-b border-linec flex items-center justify-between px-6">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-blueprimary rounded-xl flex items-center justify-center shrink-0">
-                    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M6 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.2 8.1 4.5 4.5 0 0 1 18 18H6z" fill="white"/>
-                    </svg>
-                </div>
-                <div>
-                    <div class="filenest-3d text-2xl leading-none">FileNest</div>
-                    <div class="text-[11px] text-[#8b95a5] mt-0.5">Temp - Storage - Space </div>
+        <header id="navbar" class="shrink-0 h-16 md:h-[72px] border-b border-linec flex items-center justify-between gap-2 sm:gap-3 px-4 md:px-6">
+            <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <span class="logo-tile max-sm:!w-9 max-sm:!h-9" aria-hidden="true">
+                    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none"><path d="M6 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.2 8.1 4.5 4.5 0 0 1 18 18H6z" fill="white"/></svg>
+                </span>
+                <div class="min-w-0">
+                    <div class="filenest-3d text-[1.35rem] md:text-[1.6rem]"><span>FileNest</span></div>
+                    <div class="brand-tagline hidden sm:block mt-1.5 whitespace-nowrap">Temp · Storage · Space</div>
                 </div>
             </div>
-            <div class="flex items-center gap-2">
-                <button onclick="document.getElementById('fileInput').click()"
-                        class="flex items-center gap-1.5 px-4 py-2.5 bg-blueprimary hover:bg-bluehover active:scale-[0.97] text-white text-sm font-semibold rounded-lg transition-all">
-                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7 9m5-5l5 5M4 20h16" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                    Upload
+            <div class="flex items-center gap-2 shrink-0">
+                <button id="uploadBtn" class="btn btn-primary max-sm:px-3">
+                    <span class="btn-label">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5l5 5M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <span>Upload</span>
+                    </span>
                 </button>
-                <button id="refreshBtn" onclick="location.reload()"
-                        class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-linec hover:bg-bluelight active:scale-[0.97] text-[#16181d] text-sm font-semibold rounded-lg transition-all">
-                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0 1 14-4.5M20 15a8 8 0 0 1-14 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                    Refresh
+                <button id="refreshBtn" class="btn btn-secondary btn-collapse">
+                    <span class="btn-label">
+                        <svg class="refresh-icon w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0 1 14-4.5M20 15a8 8 0 0 1-14 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <span class="btn-text">Refresh</span>
+                    </span>
                 </button>
-                <button onclick="openGuide()"
-                        class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-linec hover:bg-bluelight active:scale-[0.97] text-[#16181d] text-sm font-semibold rounded-lg transition-all">
-                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2 2-2 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="16.5" r="0.75" fill="currentColor"/></svg>
-                    Guide
+                <button id="guideBtn" class="btn btn-secondary btn-collapse" aria-haspopup="dialog">
+                    <span class="btn-label">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2 2-2 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="16.5" r="0.75" fill="currentColor"/></svg>
+                        <span class="btn-text">Guide</span>
+                    </span>
+                </button>
+                <!-- Phones get this toggle in the footer instead; the top bar is full there. -->
+                <button class="btn btn-secondary theme-toggle hidden sm:inline-flex" data-theme-toggle
+                        aria-pressed="false" aria-label="Dark mode" title="Dark mode">
+                    <span class="theme-icons" aria-hidden="true">
+                        <svg class="theme-moon" viewBox="0 0 24 24" fill="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                        <svg class="theme-sun" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    </span>
                 </button>
             </div>
-        </div>
+        </header>
 
         <!-- PASSKEY INPUT BAR -->
-        <div id="passkeyBar" class="shrink-0 border-b border-linec px-6 py-3.5 flex items-center gap-3">
-            <div class="flex-1 relative">
-                <svg class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#9aa5b8]" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2"/></svg>
-                <label for="passkeyInput"></label><input id="passkeyInput" type="text" maxlength="5" placeholder="Enter a 5-digit passkey if u want to create a custom (or) leave it blank to auto generate "
-                                                         class="w-full pl-10 pr-3.5 py-2.5 border border-linec rounded-lg text-sm outline-none focus:border-blueprimary transition-colors"
-                                                         onkeydown="if(event.key==='Enter') loadFiles(document.getElementById('loadFilesBtn'))">
+        <div id="passkeyBar" class="shrink-0 border-b border-linec px-4 md:px-6 py-3 flex items-center gap-2 md:gap-3">
+            <div id="passkeyField" class="relative flex-1 min-w-0">
+                <label for="passkeyInput" class="sr-only">Passkey</label>
+                <svg class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-muted pointer-events-none" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2"/></svg>
+                <input id="passkeyInput" class="field" type="text" maxlength="5"
+                       placeholder="Enter your passkey ex:(AB12H)"
+                       autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go">
+                <span id="passkeyCount" class="field-count" aria-hidden="true">0/5</span>
             </div>
-            <button id="loadFilesBtn" onclick="loadFiles(this)"
-                    class="px-5 py-2.5 bg-blueprimary hover:bg-bluehover active:scale-[0.97] text-white text-sm font-semibold rounded-lg transition-all whitespace-nowrap">
-                Load Files
+            <button id="loadFilesBtn" class="btn btn-primary">
+                <span class="btn-label">Load files</span>
+                <span class="btn-spinner" aria-hidden="true"></span>
             </button>
         </div>
 
-
-
         <!-- MAIN TWO-PANEL BODY -->
-        <div id="mainBody" class="flex-1 flex overflow-hidden">
+        <div id="mainBody" class="flex-1 flex flex-col md:flex-row md:min-h-0">
 
             <!-- LEFT: FILE LIST + RECENT PASSKEYS -->
-            <div class="w-[280px] shrink-0 border-r border-linec flex flex-col overflow-hidden">
+            <aside class="w-full md:w-[300px] shrink-0 flex flex-col border-b md:border-b-0 md:border-r border-linec md:min-h-0">
 
-                <div class="px-5 py-3.5 border-b border-linec flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <svg class="w-4 h-4 text-blueprimary" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke="currentColor" stroke-width="2"/></svg>
-                        <span class="font-display font-bold text-sm tracking-wide">YOUR FILES</span>
+                <section class="flex flex-col md:flex-1 md:min-h-0" aria-labelledby="filesHeading">
+                    <div class="shrink-0 h-12 px-5 flex items-center justify-between border-b border-linec">
+                        <h2 id="filesHeading" class="section-label">
+                            <svg class="w-4 h-4 text-blueprimary" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke="currentColor" stroke-width="2"/></svg>
+                            Your files
+                        </h2>
+                        <span id="fileCountBadge" class="count-badge" aria-live="polite" hidden></span>
                     </div>
-                    <span id="fileCountBadge" class="text-[11px] text-[#9aa5b8]"></span>
-                </div>
-
-                <div id="fileList" class="overflow-y-auto p-3 flex flex-col gap-2" style="max-height: 42%;">
-                    <div class="flex flex-col items-center justify-center text-center px-6 py-8">
-                        <div class="relative mb-3">
-                            <svg class="w-12 h-12 text-[#c7dbfa]" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke="currentColor" stroke-width="1.5"/></svg>
-                            <span class="absolute -top-1 -right-1 text-blueprimary text-xs">✦</span>
+                    <div id="fileList" class="p-3 overflow-y-auto overscroll-contain max-h-[340px] md:max-h-none md:flex-1 md:min-h-0">
+                        <div class="flex flex-col items-center justify-center text-center px-6 py-5 md:py-10">
+                            <div class="relative mb-3 hidden md:block">
+                                <svg class="w-11 h-11 text-[#b9d0f5]" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke="currentColor" stroke-width="1.5"/></svg>
+                                <span class="absolute -top-1 -right-1 text-blueprimary text-xs" aria-hidden="true">✦</span>
+                            </div>
+                            <p class="font-semibold text-sm text-ink-soft">No files loaded yet</p>
+                            <p class="text-xs text-ink-muted mt-1 leading-relaxed">Enter a passkey above or upload a new file to get started.</p>
                         </div>
-                        <div class="font-semibold text-sm text-[#4b5563]">No files loaded yet</div>
-                        <div class="text-xs text-[#9aa5b8] mt-1 leading-relaxed">Enter a passkey above or upload a new file to get started.</div>
                     </div>
-                </div>
+                </section>
 
                 <!-- RECENT PASSKEYS -->
-                <div class="border-t border-linec flex-1 overflow-y-auto flex flex-col">
-                    <div class="px-5 py-3 flex items-center justify-between">
-                        <span class="font-display font-bold text-xs text-[#4b5563] tracking-wide">RECENT ON THIS DEVICE</span>
-                        <button onclick="clearRecent()" class="text-[11px] text-blueprimary hover:text-bluehover active:scale-[0.95] font-medium transition-transform">Clear</button>
+                <section class="shrink-0 border-t border-linec flex flex-col md:max-h-[48%] md:min-h-0" aria-labelledby="recentHeading">
+                    <div class="shrink-0 px-5 pt-3.5 pb-2 flex items-center justify-between">
+                        <h3 id="recentHeading" class="section-label text-ink-soft">Recent on this device</h3>
+                        <button id="clearRecentBtn" class="link-btn" hidden>Clear</button>
                     </div>
-                    <div id="recentList" class="px-3 flex flex-col gap-1.5">
-                        <div class="flex items-start gap-2.5 px-2 py-2">
-                            <div class="w-7 h-7 rounded-full bg-bluelight flex items-center justify-center shrink-0 mt-0.5">
-                                <svg class="w-3.5 h-3.5 text-blueprimary" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                            </div>
-                            <div>
-                                <div class="text-xs font-semibold text-[#4b5563]">No recent passkeys</div>
-                                <div class="text-[20px] text-[#111827] mt-0.5 leading-relaxed">Passkeys you use will show up here for quick access</div>
-                            </div>
+                    <ul id="recentList" class="px-3 pb-3 flex flex-col gap-1 overflow-y-auto md:min-h-0"></ul>
+
+                    <div class="hidden md:flex shrink-0 mx-3 mb-3 p-3.5 bg-white/70 rounded-xl items-center gap-3 shadow-[0_0_0_1px_#dbeafe]">
+                        <span class="grid place-items-center w-8 h-8 rounded-lg bg-bluelight text-blueprimary shrink-0" aria-hidden="true">
+                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M8 8a4 4 0 0 1 8 0v1H8V8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><rect x="6" y="9" width="12" height="11" rx="6" stroke="currentColor" stroke-width="2"/><path d="M12 13v7M3 13h3M18 13h3M4 19l2.5-1.5M20 19l-2.5-1.5M4 7l2.5 1.5M20 7l-2.5 1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                        </span>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-xs font-semibold text-ink">Found a bug or issue?</p>
+                            <a href="https://mail.google.com/mail/?view=cm&fs=1&to=vishaal10pq@gmail.com&su=FileNest%20bug%20report"
+                               target="_blank" rel="noopener noreferrer"
+                               class="link-btn inline-flex items-center gap-1 mt-1">
+                                Report it
+                                <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </a>
                         </div>
                     </div>
+                </section>
+            </aside>
 
-                    <div class="mx-3 mt-auto mb-3 p-3.5 bg-bluelight border border-linec rounded-xl flex gap-2.5">
-                        <svg class="w-4 h-4 text-blueprimary shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2"/></svg>
-                        <div class="text-xs font-semibold text-[#16181d]">
-                            Let Me Know If There Is Any Bug/Issue
-                        </div>
+            <!-- RIGHT: HERO + UPLOAD + FEATURES -->
+            <main id="main" class="flex-1 min-w-0 md:overflow-y-auto" tabindex="-1">
+                <div class="hero-host max-w-[820px] mx-auto px-4 sm:px-8 pt-9 pb-12 md:pt-14">
+                    <!-- Dark mode only: laser beam that lands on the drop zone's top edge. -->
+                    <canvas id="laser" class="laser" aria-hidden="true"></canvas>
 
-                        <a href="https://mail.google.com/mail/?view=cm&fs=1&to=vishaal10pq@gmail.com"
-                           target="_blank"
-                           class="text-[11px] text-blueprimary hover:text-bluehover active:scale-[0.95] transition-all">
-                            >REPORT
-                        </a>
+                    <div class="hero-copy">
+                        <h1 class="headline enter" style="--d:0">
+                            <span class="headline-line headline-line--pair">Drop a <span class="headline-accent">file</span>.</span>
+                            <span class="headline-line headline-line--pair">Get a passkey </span>
+                            <span class="headline-line">Open it <span class="headline-accent">anywhere</span></span>
+                        </h1>
                     </div>
-                </div>
-            </div>
 
-            <!-- RIGHT: UPLOAD + FEATURES -->
-            <div class="flex-1 overflow-y-auto">
-                <div class="max-w-[820px] mx-auto px-8 py-8">
-
-                    <div id="dropZone"
-                         class="border-2 border-dashed border-[#93c5fd] bg-bluelight rounded-2xl py-12 px-6 text-center cursor-pointer transition-all hover:-translate-y-0.5 active:scale-[0.99]">
-                        <svg id="dropZoneIcon" class="w-11 h-11 text-blueprimary mx-auto mb-3" viewBox="0 0 24 24" fill="none"><path d="M6 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.2 8.1 4.5 4.5 0 0 1 18 18H6z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 12v6m0-6l-2.5 2.5M12 12l2.5 2.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        <div id="dropZoneTitle" class="font-display font-bold text-lg">Drag & drop to upload</div>
-                        <div id="dropZoneSubtitle" class="text-sm text-[#6b7280] mt-1">or click to browse your files</div>
-                        <div class="text-xs text-[#9aa5b8] mt-1">Uses the passkey above if entered </div>
-                        <div class="text-xs text-[#9aa5b8] mt-1">PLZ wait for some time for it to be uploaded and gen a key </div>
+                    <div id="dropZone" class="dropzone enter mt-8 md:mt-10" style="--d:1" data-state="idle"
+                         role="button" tabindex="0" aria-label="Upload a file" aria-describedby="dropZoneHint">
+                        <svg class="dz-border" aria-hidden="true"><rect width="100%" height="100%" rx="20" ry="20"/></svg>
+                        <div class="dz-stack">
+                            <div class="dz-idle">
+                                <div class="dz-icon" aria-hidden="true">
+                                    <svg class="w-7 h-7" viewBox="0 0 24 24" fill="none"><path d="M6 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.2 8.1 4.5 4.5 0 0 1 18 18H6z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 12v6m0-6l-2.5 2.5M12 12l2.5 2.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                </div>
+                                <p class="font-display font-bold text-lg">
+                                    <span class="dz-when-idle"><span class="pointer-fine">Drag &amp; drop to upload</span><span class="pointer-coarse">Tap to choose a file</span></span>
+                                    <span class="dz-when-drag">Drop it to upload</span>
+                                </p>
+                                <p class="text-sm text-ink-muted mt-1">
+                                    <span class="pointer-fine">or <span class="text-blueprimary font-semibold">click to browse</span> your files</span>
+                                    <span class="pointer-coarse">Photos, PDFs, docs, zips — anything</span>
+                                </p>
+                                <p id="dropZoneHint" class="text-xs text-ink-muted mt-3 max-w-[360px] mx-auto leading-relaxed">
+                                    Want your own passkey? Type it in the bar above before uploading  otherwise we'll generate one.
+                                </p>
+                            </div>
+                            <div class="dz-busy" aria-hidden="true">
+                                <div class="w-full max-w-[420px] text-left">
+                                    <div class="flex items-center gap-3">
+                                        <span class="grid place-items-center w-10 h-10 rounded-xl bg-white text-blueprimary shrink-0 shadow-[0_0_0_1px_#dbeafe]">
+                                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none"><path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 2v5h5" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                                        </span>
+                                        <div class="min-w-0 flex-1">
+                                            <p id="dzFileName" class="truncate text-sm font-semibold"></p>
+                                            <p class="text-xs text-ink-muted tabular-nums mt-0.5"><span id="dzFileSize"></span> · <span id="dzPhase">Uploading…</span></p>
+                                        </div>
+                                        <span id="dzPercent" class="font-display font-bold text-blueprimary tabular-nums">0%</span>
+                                    </div>
+                                    <div id="dzTrack" class="progress-track mt-3"><div id="dzBar" class="progress-bar"></div></div>
+                                    <p class="text-[11px] text-ink-muted mt-2.5 text-center">Keep this tab open until it's done.</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <input type="file" id="fileInput" class="hidden">
 
-                    <div id="passkeyDisplay" class="hidden mt-4 items-center justify-between gap-3 px-4 py-3.5 bg-bluelight border border-linec rounded-xl">
-                        <div>
-                            <span class="block text-xs text-[#6b7280]">Your passkey — save this</span>
-                            <strong id="passkeyValue" class="block text-blueprimary font-display text-2xl tracking-widest mt-0.5"></strong>
+                    <section id="passkeyDisplay" class="reveal-card" aria-labelledby="passkeyLabel" hidden>
+                        <div class="flex items-center gap-3 min-w-0">
+                            <span class="reveal-check" aria-hidden="true">
+                                <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </span>
+                            <div class="min-w-0">
+                                <p id="passkeyLabel" class="text-xs text-ink-muted">Your passkey — save this</p>
+                                <p class="passkey-code"><span id="passkeyValue" aria-hidden="true"></span><span id="passkeyValueSr" class="sr-only"></span></p>
+                            </div>
                         </div>
-                        <button id="copyBtn" onclick="copyPasskey()"
-                                class="px-3.5 py-2 bg-white border border-linec text-blueprimary rounded-lg text-xs font-bold hover:bg-white active:scale-[0.95] transition-transform whitespace-nowrap">
-                            Copy
-                        </button>
-                    </div>
+                        <div class="flex items-center gap-2 ml-auto">
+                            <button id="shareBtn" class="btn btn-secondary btn-sm" hidden>
+                                <span class="btn-label">
+                                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15V3m0 0L8 7m4-4l4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                    Share
+                                </span>
+                            </button>
+                            <button id="copyBtn" class="btn btn-secondary btn-sm">
+                                <span class="swap">
+                                    <span class="swap-a">
+                                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" stroke="currentColor" stroke-width="2"/></svg>
+                                        Copy
+                                    </span>
+                                    <span class="swap-b" aria-hidden="true">
+                                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                        Copied
+                                    </span>
+                                </span>
+                            </button>
+                        </div>
+                    </section>
 
                     <!-- FILE TYPE PILLS -->
-                    <div class="mt-6 flex flex-wrap items-center justify-center gap-2.5">
-                        <div class="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-linec rounded-full text-xs font-medium text-[#4b5563]">
-                            <svg class="w-3.5 h-3.5 text-greenc" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15l-5-5-4 4-3-3-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                            Images
-                        </div>
-                        <div class="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-linec rounded-full text-xs font-medium text-[#4b5563]">
-                            <svg class="w-3.5 h-3.5 text-redc" viewBox="0 0 24 24" fill="none"><path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 2v5h5" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-                            PDFs
-                        </div>
-                        <div class="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-linec rounded-full text-xs font-medium text-[#4b5563]">
-                            <svg class="w-3.5 h-3.5 text-blueprimary" viewBox="0 0 24 24" fill="none"><path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 13h6M9 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                            Docs
-                        </div>
-                        <div class="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-linec rounded-full text-xs font-medium text-[#4b5563]">
-                            <svg class="w-3.5 h-3.5 text-amberc" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke="currentColor" stroke-width="2"/><path d="M12 5v14" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/></svg>
-                            Zips
-                        </div>
-                        <div class="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-linec rounded-full text-xs font-medium text-[#4b5563]">
-                            <svg class="w-3.5 h-3.5 text-purplec" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z" stroke="currentColor" stroke-width="2"/></svg>
-                            Any file type
-                        </div>
+                    <div class="mt-6 enter" style="--d:2">
+                        <ul class="flex flex-wrap items-center justify-center gap-2" aria-label="Supported file types">
+                            <li class="pill">
+                                <svg class="w-3.5 h-3.5 text-greenc" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15l-5-5-4 4-3-3-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                Images
+                            </li>
+                            <li class="pill">
+                                <svg class="w-3.5 h-3.5 text-redc" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 2v5h5" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                                PDFs
+                            </li>
+                            <li class="pill">
+                                <svg class="w-3.5 h-3.5 text-blueprimary" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 13h6M9 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                                Docs
+                            </li>
+                            <li class="pill">
+                                <svg class="w-3.5 h-3.5 text-amberc" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke="currentColor" stroke-width="2"/><path d="M12 5v14" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/></svg>
+                                Zips
+                            </li>
+                            <li class="pill">
+                                <svg class="w-3.5 h-3.5 text-purplec" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z" stroke="currentColor" stroke-width="2"/></svg>
+                                Any file type
+                            </li>
+                        </ul>
+                        <p class="text-center text-xs font-medium text-ink-soft mt-3">Up to 10 MB per file · videos up to 50 MB</p>
                     </div>
 
                     <!-- WHY FILENEST -->
-                    <div class="mt-10">
-                        <div class="font-display font-bold text-lg">What Is The Requirement Of FileNest?</div>
-                        <div class="text-sm text-[#6b7280] mt-1">Easy Way To Store Temporary Files Privately And Secured.</div>
+                    <section class="mt-14" aria-labelledby="whyHeading">
+                        <h2 id="whyHeading" class="font-display font-bold text-xl tracking-[-0.01em]">Why FileNest?</h2>
+                        <p class="text-sm text-ink-soft mt-1">An easy way to store temporary files, privately and securely.</p>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-5">
-                            <div class="border border-linec bg-white/60 rounded-2xl p-4">
-                                <div class="w-9 h-9 rounded-full bg-bluelight flex items-center justify-center mb-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mt-5">
+                            <div class="feature-card">
+                                <div class="w-9 h-9 rounded-full bg-bluelight flex items-center justify-center mb-3" aria-hidden="true">
                                     <svg class="w-4 h-4 text-blueprimary" viewBox="0 0 24 24" fill="none"><path d="M12 2l7 3v6c0 5-3.4 8.4-7 10-3.6-1.6-7-5-7-10V5l7-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
                                 </div>
-                                <div class="font-bold text-sm">USE AND THROW</div>
-                                <div class="text-xs text-[#6b7280] mt-1.5 leading-relaxed">When u want to use the files for a temporary time period and delete it later </div>
+                                <h3 class="font-bold text-sm">Use and throw</h3>
+                                <p class="text-xs text-ink-muted mt-1.5 leading-relaxed">For files you only need for a little while — use them, then delete them.</p>
                             </div>
-                            <div class="border border-linec bg-white/60 rounded-2xl p-4">
-                                <div class="w-9 h-9 rounded-full bg-greenlight flex items-center justify-center mb-3">
+                            <div class="feature-card">
+                                <div class="w-9 h-9 rounded-full bg-greenlight flex items-center justify-center mb-3" aria-hidden="true">
                                     <svg class="w-4 h-4 text-greenc" viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
                                 </div>
-                                <div class="font-bold text-sm">QWIK AF </div>
-                                <div class="text-xs text-[#6b7280] mt-1.5 leading-relaxed">Upload in seconds. Share instantly. Anyone with the passkey can view and download — no signup or login is required .</div>
+                                <h3 class="font-bold text-sm">Qwik AF</h3>
+                                <p class="text-xs text-ink-muted mt-1.5 leading-relaxed">Upload in seconds. Share instantly. Anyone with the passkey can view and download — no signup or login required.</p>
                             </div>
-                            <div class="border border-linec bg-white/60 rounded-2xl p-4">
-                                <div class="w-9 h-9 rounded-full bg-purplelight flex items-center justify-center mb-3">
+                            <div class="feature-card">
+                                <div class="w-9 h-9 rounded-full bg-purplelight flex items-center justify-center mb-3" aria-hidden="true">
                                     <svg class="w-4 h-4 text-purplec" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2"/></svg>
                                 </div>
-                                <div class="font-bold text-sm"> Safe,But Don't Be Bait </div>
-                                <div class="text-xs text-[#6b7280] mt-1.5 leading-relaxed">Your files are safe, bro — but don't be using some bait passkey like 12345. people are gonna try the obvious ones Keep it lowkey and don't make it easy for the mandem.</div>
+                                <h3 class="font-bold text-sm">Safe, but don't be bait</h3>
+                                <p class="text-xs text-ink-muted mt-1.5 leading-relaxed">Your files are safe, bro — but don't use some bait passkey like 12345. People are gonna try the obvious ones. Keep it lowkey and don't make it easy for the mandem.</p>
                             </div>
                         </div>
-                    </div>
+                    </section>
 
                     <!-- SHARE ANYTHING CARD -->
-                    <div class="mt-6 relative overflow-hidden bg-bluelight border border-linec rounded-2xl p-5 flex items-start gap-3.5">
-                        <div class="w-10 h-10 rounded-full bg-white border border-linec flex items-center justify-center shrink-0 z-10">
-                            <svg class="w-4.5 h-4.5 text-blueprimary" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="2"/><path d="M2 20c0-3.3 3.1-6 7-6s7 2.7 7 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.3" stroke="currentColor" stroke-width="2"/><path d="M22 20c0-2.6-1.9-4.8-4.5-5.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    <div class="mt-5 relative overflow-hidden bg-bluelight rounded-2xl p-5 flex items-start gap-3.5 shadow-[0_0_0_1px_#dbeafe]">
+                        <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 z-10 shadow-[0_0_0_1px_#dbeafe]" aria-hidden="true">
+                            <svg class="w-[18px] h-[18px] text-blueprimary" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="2"/><path d="M2 20c0-3.3 3.1-6 7-6s7 2.7 7 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.3" stroke="currentColor" stroke-width="2"/><path d="M22 20c0-2.6-1.9-4.8-4.5-5.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
                         </div>
                         <div class="z-10">
-                            <div class="font-semibold text-sm">Share anything. Anywhere.</div>
-                            <div class="text-xs text-[#6b7280] mt-1 leading-relaxed max-w-[440px]">FileNest makes sharing documents, photos, PDFs, and more fast and effortless. Perfect for projects, handoffs, classwork, or sharing memories.</div>
+                            <h3 class="font-semibold text-sm">Share anything. Anywhere.</h3>
+                            <p class="text-xs text-ink-muted mt-1 leading-relaxed max-w-[440px]">FileNest makes sharing documents, photos, PDFs, and more fast and effortless. Perfect for projects, handoffs, classwork, or sharing memories.</p>
                         </div>
-                        <svg class="absolute -right-4 -bottom-6 w-32 h-32 text-white opacity-70 z-0" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.2 8.1 4.5 4.5 0 0 1 18 18H6z"/></svg>
+                        <svg class="absolute -right-4 -bottom-6 w-32 h-32 text-white opacity-70 z-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.2 8.1 4.5 4.5 0 0 1 18 18H6z"/></svg>
                     </div>
 
                 </div>
-            </div>
+            </main>
 
         </div>
 
         <!-- FOOTER -->
-        <div id="siteFooter" class="shrink-0 border-t border-linec px-6 py-3 flex items-center justify-between text-xs text-[#8b95a5]">
-            <div class="flex items-center gap-2">
-                <span class="w-4 h-4 rounded-full bg-blueprimary"></span>
-                <span class="text-sm font-extrabold text-[#4b5563]">FILENEST</span>
-                <span class="text-sm font-bold text-[#4b5563]">
-    — NO SIGNUP · NO CREDIT CARD · 100% FREE
-</span>
+        <footer id="siteFooter" class="shrink-0 border-t border-linec px-4 md:px-6 py-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div class="flex items-center gap-2 min-w-0 text-xs">
+                <span class="w-3.5 h-3.5 rounded-full bg-blueprimary shrink-0" aria-hidden="true"></span>
+                <span class="font-extrabold text-ink-soft tracking-wide">FILENEST</span>
+                <span class="hidden sm:inline font-semibold text-ink-muted">— No signup · No credit card · 100% free</span>
+                <a href="https://mail.google.com/mail/?view=cm&fs=1&to=vishaal10pq@gmail.com&su=FileNest%20bug%20report"
+                   target="_blank" rel="noopener noreferrer" class="link-btn md:hidden ml-2">Report a bug</a>
             </div>
-            <a href="https://github.com/vishaalb10" target="_blank" class="text-[#4b5563] hover:text-[#16181d] active:scale-[0.95] transition-all">
-                <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.42-2.69 5.4-5.25 5.68.42.36.78 1.08.78 2.18 0 1.58-.01 2.85-.01 3.24 0 .3.2.66.79.55A10.52 10.52 0 0 0 23.5 12c0-6.35-5.15-11.5-11.5-11.5z"/></svg>
-            </a>
-        </div>
+            <div class="flex items-center gap-2.5 ml-auto">
+                <span class="hidden sm:inline text-xs text-ink-muted"> </span>
+                <button class="btn btn-secondary theme-toggle theme-toggle-sm sm:hidden" data-theme-toggle
+                        aria-pressed="false" aria-label="Dark mode" title="Dark mode">
+                    <span class="theme-icons" aria-hidden="true">
+                        <svg class="theme-moon" viewBox="0 0 24 24" fill="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                        <svg class="theme-sun" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    </span>
+                </button>
+                <a class="gh-pill" href="https://github.com/vishaalb10/Personal-Temp-Cloud-File-Server" target="_blank" rel="noopener noreferrer"
+                   aria-label="Vishaal B on GitHub (opens in a new tab)">
+                    <span class="gh-layer gh-base" aria-hidden="true">
+                        <span class="gh-mark-wave"><span class="gh-mark"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.42-2.69 5.4-5.25 5.68.42.36.78 1.08.78 2.18 0 1.58-.01 2.85-.01 3.24 0 .3.2.66.79.55A10.52 10.52 0 0 0 23.5 12c0-6.35-5.15-11.5-11.5-11.5z"/></svg></span></span>
+                        <span>Vishaal B</span>
+                        <svg class="gh-arrow" viewBox="0 0 24 24" fill="none"><path d="M7 17L17 7M9 7h8v8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                    <span class="gh-layer gh-fill" aria-hidden="true">
+                        <span class="gh-mark-wave"><span class="gh-mark"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.42-2.69 5.4-5.25 5.68.42.36.78 1.08.78 2.18 0 1.58-.01 2.85-.01 3.24 0 .3.2.66.79.55A10.52 10.52 0 0 0 23.5 12c0-6.35-5.15-11.5-11.5-11.5z"/></svg></span></span>
+                        <span>Vishaal B</span>
+                        <svg class="gh-arrow" viewBox="0 0 24 24" fill="none"><path d="M7 17L17 7M9 7h8v8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                </a>
+            </div>
+        </footer>
 
     </div><!-- /content wrapper -->
 </div><!-- /aura background wrapper -->
 
 <!-- GUIDE MODAL -->
-<div id="guideModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 items-center justify-center px-4"
-     onclick="if(event.target === this) closeGuide()">
-    <div class="bg-white rounded-2xl border border-linec shadow-2xl max-w-md w-full max-h-[85vh] overflow-y-auto">
-
-        <div class="flex items-center justify-between px-6 py-4 border-b border-linec sticky top-0 bg-white">
-            <div class="flex items-center gap-2">
-                <div class="w-8 h-8 rounded-lg bg-bluelight flex items-center justify-center">
+<dialog id="guideModal" class="guide-dialog" aria-labelledby="guideTitle">
+    <div class="guide-panel">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-linec sticky top-0 bg-white z-10">
+            <div class="flex items-center gap-2.5">
+                <span class="w-8 h-8 rounded-lg bg-bluelight flex items-center justify-center" aria-hidden="true">
                     <svg class="w-4 h-4 text-blueprimary" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2 2-2 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="16.5" r="0.75" fill="currentColor"/></svg>
-                </div>
-                <span class="font-display font-bold text-base">How to use FileNest</span>
+                </span>
+                <h2 id="guideTitle" class="font-display font-bold text-base">How to use FileNest</h2>
             </div>
-            <button onclick="closeGuide()" class="text-[#9aa5b8] hover:text-[#16181d] active:scale-[0.9] transition-all">
-                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <button id="guideClose" class="icon-btn" aria-label="Close guide" autofocus>
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             </button>
         </div>
 
-        <div class="px-6 py-5 flex flex-col gap-4">
-
-            <div class="flex gap-3">
-                <div class="w-7 h-7 rounded-full bg-blueprimary text-white flex items-center justify-center text-xs font-bold shrink-0">1</div>
+        <ol class="px-6 py-5 flex flex-col gap-4">
+            <li class="flex gap-3">
+                <span class="step-num" aria-hidden="true">1</span>
                 <div>
-                    <div class="text-sm font-semibold">Drag a file in, or click to browse</div>
-                    <div class="text-xs text-[#6b7280] mt-0.5 leading-relaxed">Drop it onto the upload box on the right, or click the box to open your file picker.</div>
+                    <p class="text-sm font-semibold">Drag a file in, or click to browse</p>
+                    <p class="text-xs text-ink-muted mt-0.5 leading-relaxed">Drop it onto the upload box, or click the box to open your file picker.</p>
                 </div>
-            </div>
-
-            <div class="flex gap-3">
-                <div class="w-7 h-7 rounded-full bg-blueprimary text-white flex items-center justify-center text-xs font-bold shrink-0">2</div>
+            </li>
+            <li class="flex gap-3">
+                <span class="step-num" aria-hidden="true">2</span>
                 <div>
-                    <div class="text-sm font-semibold">Save the passkey you're given</div>
-                    <div class="text-xs text-[#6b7280] mt-0.5 leading-relaxed">A code appears after upload — write it down. Want to pick your own instead? Type up to 5 digits or alphabets(I recommend using both)into the passkey bar before uploading.</div>
+                    <p class="text-sm font-semibold">Save the passkey you're given</p>
+                    <p class="text-xs text-ink-muted mt-0.5 leading-relaxed">A code appears after upload — write it down. Want to pick your own instead? Type up to 5 letters or digits (a mix of both is best) into the passkey bar before uploading.</p>
                 </div>
-            </div>
-
-            <div class="flex gap-3">
-                <div class="w-7 h-7 rounded-full bg-blueprimary text-white flex items-center justify-center text-xs font-bold shrink-0">3</div>
+            </li>
+            <li class="flex gap-3">
+                <span class="step-num" aria-hidden="true">3</span>
                 <div>
-                    <div class="text-sm font-semibold">Load your files from any device</div>
-                    <div class="text-xs text-[#6b7280] mt-0.5 leading-relaxed">Enter that passkey in the bar up top and hit "Load Files" — same code works on your phone, laptop, anywhere.!Hopefully😭</div>
+                    <p class="text-sm font-semibold">Load your files from any device</p>
+                    <p class="text-xs text-ink-muted mt-0.5 leading-relaxed">Enter that passkey in the bar up top and hit “Load files” — the same code works on your phone, laptop, anywhere. Hopefully 😭</p>
                 </div>
-            </div>
-
-            <div class="flex gap-3">
-                <div class="w-7 h-7 rounded-full bg-blueprimary text-white flex items-center justify-center text-xs font-bold shrink-0">4</div>
+            </li>
+            <li class="flex gap-3">
+                <span class="step-num" aria-hidden="true">4</span>
                 <div>
-                    <div class="text-sm font-semibold">Get or Delete (Within 7 Days)</div>
-                    <div class="text-xs text-[#6b7280] mt-0.5 leading-relaxed">Each file in your list has an Open and a Delete button — Plz make sure to delete the files within 7days after it is uploaded.</div>
+                    <p class="text-sm font-semibold">Open or delete (within 7 days)</p>
+                    <p class="text-xs text-ink-muted mt-0.5 leading-relaxed">Each file in your list has an Open and a Delete button — press Delete twice to confirm. Please delete your files within 7 days of uploading them.</p>
                 </div>
-            </div>
+            </li>
+        </ol>
 
-            <div class="border-t border-linec pt-4 mt-1">
-                <div class="text-xs font-bold text-[#4b5563] uppercase tracking-wide mb-2.5">File size limits</div>
-                <div class="flex flex-col gap-1.5">
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="text-[#6b7280]">Images, PDFs, Docs, Zips</span>
-                        <span class="font-semibold text-[#16181d]">Up to 10 MB</span>
-                    </div>
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="text-[#6b7280]">Videos</span>
-                        <span class="font-semibold text-[#16181d]">Up to 100 MB</span>
-                    </div>
+        <div class="mx-6 mb-6 pt-4 border-t border-linec">
+            <h3 class="text-xs font-bold text-ink-soft uppercase tracking-wide mb-2.5">File size limits</h3>
+            <dl class="flex flex-col gap-1.5 text-xs">
+                <div class="flex items-center justify-between">
+                    <dt class="text-ink-muted">Images, PDFs, Docs, Zips</dt>
+                    <dd class="font-semibold text-ink">Up to 10 MB</dd>
                 </div>
-                <div class="text-[11px] text-[#9aa5b8] mt-2.5 leading-relaxed">These limits come from our free storage plan — files larger than this may fail to upload.</div>
-            </div>
-
+                <div class="flex items-center justify-between">
+                    <dt class="text-ink-muted">Videos</dt>
+                    <dd class="font-semibold text-ink">Up to 50 MB</dd>
+                </div>
+            </dl>
+            <p class="text-[11px] text-ink-muted mt-2.5 leading-relaxed">These limits come from our free storage plan and the server's 50 MB upload cap — larger files will fail to upload.</p>
         </div>
     </div>
-</div>
+</dialog>
+
+<ol id="toaster" class="toaster" aria-live="polite" aria-label="Notifications"></ol>
+<p id="srStatus" class="sr-only" aria-live="polite"></p>
 
 <script>
-    const dropZone = document.getElementById('dropZone');
-    const dropZoneIcon = document.getElementById('dropZoneIcon');
-    const dropZoneTitle = document.getElementById('dropZoneTitle');
-    const dropZoneSubtitle = document.getElementById('dropZoneSubtitle');
-    const fileInput = document.getElementById('fileInput');
-    const passkeyInput = document.getElementById('passkeyInput');
-    const passkeyDisplay = document.getElementById('passkeyDisplay');
-    const passkeyValue = document.getElementById('passkeyValue');
-    const fileList = document.getElementById('fileList');
-    const recentList = document.getElementById('recentList');
-    const fileCountBadge = document.getElementById('fileCountBadge');
-    const guideModal = document.getElementById('guideModal');
-    const copyBtn = document.getElementById('copyBtn');
+(() => {
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    const dropZone = $('dropZone');
+    const fileInput = $('fileInput');
+    const passkeyField = $('passkeyField');
+    const passkeyInput = $('passkeyInput');
+    const passkeyCount = $('passkeyCount');
+    const passkeyDisplay = $('passkeyDisplay');
+    const passkeyValue = $('passkeyValue');
+    const passkeyValueSr = $('passkeyValueSr');
+    const fileList = $('fileList');
+    const recentList = $('recentList');
+    const fileCountBadge = $('fileCountBadge');
+    const guideModal = $('guideModal');
+    const copyBtn = $('copyBtn');
+    const shareBtn = $('shareBtn');
+    const uploadBtn = $('uploadBtn');
+    const refreshBtn = $('refreshBtn');
+    const loadFilesBtn = $('loadFilesBtn');
+    const clearRecentBtn = $('clearRecentBtn');
+    const toaster = $('toaster');
+    const srStatus = $('srStatus');
+    const dzFileName = $('dzFileName');
+    const dzFileSize = $('dzFileSize');
+    const dzPhase = $('dzPhase');
+    const dzPercent = $('dzPercent');
+    const dzTrack = $('dzTrack');
+    const dzBar = $('dzBar');
 
     const RECENT_KEY = 'filenest_recent_passkeys';
-    const SPINNER = `<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" stroke-opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+    const PASSKEY_MAX = Number(passkeyInput.maxLength);
+    // Mirrors spring.servlet.multipart.max-file-size in application.properties.
+    const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+    const THUMB_FORMATS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+    const tapWord = matchMedia('(pointer: coarse)').matches ? 'Tap' : 'Click';
 
-    function setButtonLoading(btn, isLoading, loadingLabel) {
+    let loadedPasskey = null;
+    let isUploading = false;
+    let loadToken = 0;
+
+    const esc = (value) => String(value).replace(/[&<>"']/g, (c) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+
+    const announce = (message) => {
+        srStatus.textContent = '';
+        setTimeout(() => { srStatus.textContent = message; }, 50); // re-announces identical messages
+    };
+
+    /* ---------- Icons ---------- */
+    const svg = (inner, cls = 'w-5 h-5') =>
+        `<svg class="${cls}" viewBox="0 0 24 24" fill="none" aria-hidden="true">${inner}</svg>`;
+    const PATHS = {
+        image: '<rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15l-5-5-4 4-3-3-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+        pdf: '<path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 2v5h5" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+        video: '<rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/><path d="M10 9.5v5l4-2.5-4-2.5z" fill="currentColor"/>',
+        audio: '<path d="M9 18V5l11-2v13" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" stroke="currentColor" stroke-width="2"/><circle cx="17" cy="16" r="3" stroke="currentColor" stroke-width="2"/>',
+        archive: '<path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke="currentColor" stroke-width="2"/><path d="M12 5v14" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/>',
+        doc: '<path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 13h6M9 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+        file: '<path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 2v5h5" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+        open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+        trash: '<path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+        arrow: '<path d="M5 12h14m-5-5l5 5-5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
+        clock: '<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+        success: '<circle cx="12" cy="12" r="10" fill="currentColor"/><path d="M7.5 12.5l3 3 6-6.5" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
+        error: '<circle cx="12" cy="12" r="10" fill="currentColor"/><path d="M12 7.5v5.5" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1.2" fill="#fff"/>',
+        info: '<circle cx="12" cy="12" r="10" fill="currentColor"/><path d="M12 11v5.5" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1.2" fill="#fff"/>',
+    };
+
+    const KINDS = [
+        { kind: 'image', tone: 'text-greenc bg-greenlight', exts: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'tiff', 'ico', 'avif', 'heic'] },
+        { kind: 'pdf', tone: 'text-redc bg-redlight', exts: ['pdf'] },
+        { kind: 'video', tone: 'text-purplec bg-purplelight', exts: ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'] },
+        { kind: 'audio', tone: 'text-purplec bg-purplelight', exts: ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'aac'] },
+        { kind: 'archive', tone: 'text-amberc bg-amberlight', exts: ['zip', 'rar', '7z', 'tar', 'gz'] },
+        { kind: 'doc', tone: 'text-blueprimary bg-bluelight', exts: ['doc', 'docx', 'txt', 'rtf', 'odt', 'md', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'json'] },
+    ];
+    const kindOf = (ext) => KINDS.find((k) => k.exts.includes(ext)) || { kind: 'file', tone: 'text-ink-soft bg-slate-100' };
+
+    /* ---------- Formatting ---------- */
+    function formatBytes(bytes) {
+        if (!Number.isFinite(bytes)) return '';
+        if (bytes < 1024) return `${bytes} B`;
+        const units = ['KB', 'MB', 'GB'];
+        let value = bytes / 1024;
+        let i = 0;
+        while (value >= 1024 && i < units.length - 1) { value /= 1024; i++; }
+        return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
+    }
+
+    const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+    function ageOf(createdAt) {
+        const time = Date.parse(createdAt);
+        if (Number.isNaN(time)) return null;
+        const diff = Math.max(0, Date.now() - time);
+        const MIN = 60e3, HOUR = 60 * MIN, DAY = 24 * HOUR;
+        let label;
+        if (diff < MIN) label = 'just now';
+        else if (diff < HOUR) label = rtf.format(-Math.floor(diff / MIN), 'minute');
+        else if (diff < DAY) label = rtf.format(-Math.floor(diff / HOUR), 'hour');
+        else label = rtf.format(-Math.floor(diff / DAY), 'day');
+        return { label, days: diff / DAY };
+    }
+
+    // Small Cloudinary-resized thumbnail instead of the full-size image; falls back to the original on error.
+    const thumbUrl = (url) => url.includes('/image/upload/')
+        ? url.replace('/image/upload/', '/image/upload/c_fill,w_96,h_96,q_auto,f_auto/')
+        : url;
+
+    /* ---------- Toasts ---------- */
+    const activeToasts = new Set();
+
+    function toast(title, { type = 'info', description = '', duration = 4500 } = {}) {
+        const el = document.createElement('li');
+        el.className = 'toast';
+        const tone = { success: 'text-greenc', error: 'text-redc', info: 'text-blueprimary' }[type];
+        el.innerHTML = `${svg(PATHS[type], `toast-icon ${tone}`)}
+            <div class="min-w-0">
+                <p class="toast-title">${esc(title)}</p>
+                ${description ? `<p class="toast-desc">${esc(description)}</p>` : ''}
+            </div>`;
+        toaster.append(el);
+
+        const t = { el, remaining: duration, started: 0, timer: 0, running: false };
+        t.resume = () => {
+            if (t.running) return;
+            t.running = true;
+            t.started = Date.now();
+            t.timer = setTimeout(() => dismissToast(t), t.remaining);
+        };
+        t.pause = () => {
+            if (!t.running) return;
+            t.running = false;
+            clearTimeout(t.timer);
+            t.remaining -= Date.now() - t.started;
+        };
+        el.addEventListener('pointerenter', t.pause);
+        el.addEventListener('pointerleave', t.resume);
+        el.addEventListener('click', () => dismissToast(t));
+        activeToasts.add(t);
+        if (!document.hidden) t.resume();
+        if (activeToasts.size > 3) dismissToast(activeToasts.values().next().value);
+    }
+
+    function dismissToast(t) {
+        if (!activeToasts.delete(t)) return;
+        t.pause();
+        t.el.setAttribute('data-leaving', '');
+        const remove = () => t.el.remove();
+        t.el.addEventListener('transitionend', remove, { once: true });
+        setTimeout(remove, 300);
+    }
+
+    // Pause toast timers while the tab is hidden so nothing disappears unseen.
+    document.addEventListener('visibilitychange', () => {
+        activeToasts.forEach((t) => (document.hidden ? t.pause() : t.resume()));
+    });
+
+    /* ---------- Buttons ---------- */
+    function setLoading(btn, isLoading) {
         if (!btn) return;
-        if (isLoading) {
-            btn.dataset.originalHtml = btn.innerHTML;
-            btn.disabled = true;
-            btn.classList.add('opacity-70', 'cursor-wait');
-            btn.innerHTML = `${SPINNER}${loadingLabel ? `<span>${loadingLabel}</span>` : ''}`;
-        } else {
-            btn.disabled = false;
-            btn.classList.remove('opacity-70', 'cursor-wait');
-            if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
+        btn.toggleAttribute('data-loading', isLoading);
+        btn.disabled = isLoading;
+        btn.setAttribute('aria-busy', String(isLoading));
+    }
+
+    /* ---------- Passkey input ---------- */
+    function updateCount() {
+        const length = passkeyInput.value.length;
+        passkeyCount.textContent = `${length}/${PASSKEY_MAX}`;
+        passkeyCount.toggleAttribute('data-full', length === PASSKEY_MAX);
+    }
+
+    function flagEmptyPasskey() {
+        passkeyInput.setAttribute('aria-invalid', 'true');
+        passkeyInput.focus();
+        announce('Enter a passkey to load files.');
+        if (reduceMotion.matches) return;
+        passkeyField.classList.remove('shake');
+        void passkeyField.offsetWidth; // restart the animation on repeated clicks
+        passkeyField.classList.add('shake');
+    }
+
+    passkeyInput.addEventListener('input', () => {
+        passkeyInput.removeAttribute('aria-invalid');
+        updateCount();
+    });
+    passkeyInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.isComposing) onLoadClick();
+    });
+    passkeyField.addEventListener('animationend', () => passkeyField.classList.remove('shake'));
+
+    function onLoadClick() {
+        const passkey = passkeyInput.value.trim();
+        if (!passkey) {
+            flagEmptyPasskey();
+            return;
+        }
+        loadFiles(passkey, { button: loadFilesBtn });
+    }
+    loadFilesBtn.addEventListener('click', onLoadClick);
+
+    /* ---------- Recent passkeys ---------- */
+    function getRecent() {
+        try {
+            const value = JSON.parse(localStorage.getItem(RECENT_KEY));
+            return Array.isArray(value) ? value.filter((p) => typeof p === 'string') : [];
+        } catch {
+            return [];
         }
     }
 
-    function openGuide() {
-        guideModal.classList.remove('hidden');
-        guideModal.classList.add('flex');
-    }
-
-    function closeGuide() {
-        guideModal.classList.add('hidden');
-        guideModal.classList.remove('flex');
-    }
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeGuide();
-    });
-
-    function getRecent() {
-        try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; }
-        catch { return []; }
-    }
-
     function saveRecent(passkey) {
-        let recent = getRecent().filter(p => p !== passkey);
-        recent.unshift(passkey);
-        recent = recent.slice(0, 5);
-        localStorage.setItem(RECENT_KEY, JSON.stringify(recent));
+        const recent = [passkey, ...getRecent().filter((p) => p !== passkey)].slice(0, 5);
+        try { localStorage.setItem(RECENT_KEY, JSON.stringify(recent)); } catch { /* storage unavailable */ }
         renderRecent();
     }
 
     function clearRecent() {
-        localStorage.removeItem(RECENT_KEY);
+        try { localStorage.removeItem(RECENT_KEY); } catch { /* storage unavailable */ }
         passkeyInput.value = '';
-        passkeyValue.textContent = '';
-        passkeyDisplay.classList.add('hidden');
-        passkeyDisplay.classList.remove('flex');
+        updateCount();
+        hidePasskey();
         renderRecent();
     }
 
     function renderRecent() {
         const recent = getRecent();
+        clearRecentBtn.hidden = recent.length === 0;
         if (recent.length === 0) {
             recentList.innerHTML = `
-        <div class="flex items-start gap-2.5 px-2 py-2">
-          <div class="w-7 h-7 rounded-full bg-bluelight flex items-center justify-center shrink-0 mt-0.5">
-            <svg class="w-3.5 h-3.5 text-blueprimary" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          </div>
-          <div>
-            <div class="text-sm font-semibold text-[#4b5563]">No recent passkeys</div>
-            <div class="text-xs text-[#6b7280] mt-1">Passkeys you use will show up here for quick access</div>
-          </div>
-        </div>`;
+                <li class="flex items-start gap-2.5 px-2 py-1.5">
+                    <span class="w-7 h-7 rounded-full bg-bluelight text-blueprimary flex items-center justify-center shrink-0">${svg(PATHS.clock, 'w-3.5 h-3.5')}</span>
+                    <div>
+                        <p class="text-sm font-semibold text-ink-soft">No recent passkeys</p>
+                        <p class="text-xs text-ink-muted mt-0.5 leading-relaxed">Passkeys you use will show up here for quick access.</p>
+                    </div>
+                </li>`;
             return;
         }
-        recentList.innerHTML = recent.map(p => `
-      <button onclick="quickLoad('${p}')"
-        class="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-bluelight active:scale-[0.98] transition-all text-left">
-        <span class="font-mono text-sm font-semibold tracking-wide">${p}</span>
-        <span class="text-[11px] text-blueprimary">Load →</span>
-      </button>
-    `).join('');
+        recentList.innerHTML = recent.map((p) => `
+            <li>
+                <button class="recent-item" data-passkey="${esc(p)}" ${p === loadedPasskey ? 'aria-current="true"' : ''}>
+                    <span class="font-mono text-[13px] font-semibold tracking-[0.14em]">${esc(p)}</span>
+                    <span class="recent-cta">Load ${svg(PATHS.arrow, 'w-3 h-3')}</span>
+                </button>
+            </li>`).join('');
     }
 
-    function quickLoad(passkey) {
-        passkeyInput.value = passkey;
-        loadFiles(document.getElementById('loadFilesBtn'));
+    recentList.addEventListener('click', (e) => {
+        const item = e.target.closest('[data-passkey]');
+        if (!item) return;
+        passkeyInput.value = item.dataset.passkey;
+        passkeyInput.removeAttribute('aria-invalid');
+        updateCount();
+        loadFiles(item.dataset.passkey, { button: loadFilesBtn });
+    });
+    clearRecentBtn.addEventListener('click', clearRecent);
+
+    /* ---------- File list ---------- */
+    function setCount(count) {
+        fileCountBadge.hidden = false;
+        fileCountBadge.textContent = `${count} file${count === 1 ? '' : 's'}`;
     }
 
-    dropZone.addEventListener('click', () => fileInput.click());
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('bg-[#dbeafe]');
-    });
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('bg-[#dbeafe]');
-    });
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('bg-[#dbeafe]');
-        if (e.dataTransfer.files.length > 0) uploadFile(e.dataTransfer.files[0]);
-    });
-    fileInput.addEventListener('change', () => {
-        if (fileInput.files.length > 0) uploadFile(fileInput.files[0]);
-    });
+    function fileRowHtml(file, index) {
+        const name = file.public_id.split('/').pop();
+        const ext = String(file.format || (name.includes('.') ? name.split('.').pop() : '')).toLowerCase();
+        const downloadName = name.includes('.') ? name : (ext ? `${name}.${ext}` : name);
+        const safeId = file.public_id.replace('/', '--');
+        const url = String(file.secure_url || '');
+        const kind = kindOf(ext);
 
-    function setDropZoneUploading(isUploading) {
-        if (isUploading) {
-            dropZone.classList.add('pointer-events-none', 'opacity-80');
-            document.getElementById('dropZoneIcon').outerHTML = `<svg id="dropZoneIcon" class="w-11 h-11 text-blueprimary mx-auto mb-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" stroke-opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
-            dropZoneTitle.textContent = 'Uploading…';
-            dropZoneSubtitle.textContent = 'This can take a moment for larger files';
-        } else {
-            dropZone.classList.remove('pointer-events-none', 'opacity-80');
-            document.getElementById('dropZoneIcon').outerHTML = `<svg id="dropZoneIcon" class="w-11 h-11 text-blueprimary mx-auto mb-3" viewBox="0 0 24 24" fill="none"><path d="M6 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.2 8.1 4.5 4.5 0 0 1 18 18H6z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 12v6m0-6l-2.5 2.5M12 12l2.5 2.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-            dropZoneTitle.textContent = 'Drag & drop to upload';
-            dropZoneSubtitle.textContent = 'or click to browse your files';
+        const thumb = THUMB_FORMATS.includes(ext)
+            ? `<span class="file-thumb bg-bluelight"><img src="${esc(thumbUrl(url))}" data-fallback="${esc(url)}" alt="" loading="lazy" decoding="async"></span>`
+            : `<span class="file-thumb ${kind.tone}">${svg(PATHS[kind.kind])}</span>`;
+
+        const age = ageOf(file.created_at);
+        const stale = Boolean(age && age.days >= 7);
+        const details = [formatBytes(file.bytes), age && `uploaded ${age.label}`].filter(Boolean).join(' · ');
+        // The sidebar is narrow, so stale files swap the size for the reminder; the full text lives in the tooltip.
+        const meta = stale
+            ? `${Math.floor(age.days)} days old · delete it`
+            : [formatBytes(file.bytes), age && age.label].filter(Boolean).join(' · ');
+        const metaTitle = stale ? `${details}. Please delete files within 7 days.` : details;
+
+        return `
+            <li class="file-row" style="--i:${index}" data-id="${esc(safeId)}" data-name="${esc(downloadName)}">
+                ${thumb}
+                <div class="min-w-0 flex-1">
+                    <p class="truncate text-[13px] font-semibold text-ink" title="${esc(downloadName)}">${esc(downloadName)}</p>
+                    <div class="file-sub">
+                        <p class="file-meta${stale ? ' is-stale' : ''}" title="${esc(metaTitle)}">${esc(meta)}</p>
+                        <p class="file-confirm" aria-hidden="true">${tapWord} again to delete</p>
+                    </div>
+                </div>
+                <a class="icon-btn" href="${esc(url)}" download="${esc(downloadName)}" target="_blank" rel="noopener noreferrer"
+                   aria-label="Open ${esc(downloadName)}" title="Open">${svg(PATHS.open, 'w-4 h-4')}</a>
+                <button class="icon-btn icon-btn-danger" data-action="delete"
+                        aria-label="Delete ${esc(downloadName)}" title="Delete">${svg(PATHS.trash, 'w-4 h-4')}<span class="btn-spinner" aria-hidden="true"></span></button>
+            </li>`;
+    }
+
+    function renderEmptyFiles(passkey) {
+        fileList.innerHTML = `
+            <div class="flex flex-col items-center justify-center text-center px-6 py-6 md:py-10">
+                <p class="font-semibold text-sm text-ink-soft">No files yet</p>
+                <p class="text-xs text-ink-muted mt-1">for passkey <span class="font-mono font-semibold text-ink-soft">${esc(passkey)}</span></p>
+            </div>`;
+        setCount(0);
+    }
+
+    function renderFiles(files, passkey) {
+        if (files.length === 0) {
+            renderEmptyFiles(passkey);
+            return;
         }
+        const newestFirst = [...files].sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0));
+        fileList.innerHTML = `<ul>${newestFirst.map(fileRowHtml).join('')}</ul>`;
+        // Resized thumbnail failed → try the original; if that fails too, show the image icon.
+        fileList.querySelectorAll('img[data-fallback]').forEach((img) => {
+            img.addEventListener('error', () => {
+                if (img.dataset.fallback) {
+                    img.src = img.dataset.fallback;
+                    delete img.dataset.fallback;
+                } else {
+                    img.parentElement.className = `file-thumb ${kindOf('png').tone}`;
+                    img.replaceWith(document.createRange().createContextualFragment(svg(PATHS.image)));
+                }
+            });
+        });
+        setCount(files.length);
+    }
+
+    async function loadFiles(passkey, { button } = {}) {
+        const token = ++loadToken;
+        setLoading(button, true);
+        try {
+            const res = await fetch(`/files/${encodeURIComponent(passkey)}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const files = await res.json();
+            if (token !== loadToken) return; // a newer request replaced this one
+            loadedPasskey = passkey;
+            saveRecent(passkey);
+            renderFiles(Array.isArray(files) ? files : [], passkey);
+            announce(`${files.length} file${files.length === 1 ? '' : 's'} loaded.`);
+        } catch (err) {
+            console.error('Loading files failed:', err);
+            if (token === loadToken) {
+                const description = err instanceof TypeError
+                    ? 'Check your connection and try again.'
+                    : 'The server had a problem. Please try again in a moment.';
+                toast("Couldn't load files", { type: 'error', description });
+            }
+        } finally {
+            setLoading(button, false);
+        }
+    }
+
+    function flashRow(publicId) {
+        if (!publicId) return;
+        const id = String(publicId).replace('/', '--');
+        const row = [...fileList.querySelectorAll('.file-row')].find((r) => r.dataset.id === id);
+        if (row) row.classList.add('is-new');
+    }
+
+    /* Delete: first press arms the row, second press deletes. */
+    function arm(row) {
+        fileList.querySelectorAll('.file-row[data-armed]').forEach((r) => r !== row && disarm(r));
+        row.setAttribute('data-armed', '');
+        row.querySelector('[data-action="delete"]').setAttribute('aria-label', `Confirm delete ${row.dataset.name}`);
+        announce(`${tapWord} delete again to confirm.`);
+        clearTimeout(row.disarmTimer);
+        row.disarmTimer = setTimeout(() => disarm(row), 4000);
+    }
+
+    function disarm(row) {
+        clearTimeout(row.disarmTimer);
+        row.removeAttribute('data-armed');
+        row.querySelector('[data-action="delete"]')?.setAttribute('aria-label', `Delete ${row.dataset.name}`);
+    }
+
+    // Animation.finished only settles on a rendered frame, so a hidden tab would stall it; the timer keeps state moving.
+    const settle = (animation) => Promise.race([
+        animation.finished.catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, animation.effect.getTiming().duration + 50)),
+    ]);
+
+    async function removeRow(row) {
+        if (reduceMotion.matches) {
+            row.remove();
+            return;
+        }
+        row.style.overflow = 'hidden';
+        await settle(row.animate(
+            [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(-10px)' }],
+            { duration: 160, easing: 'cubic-bezier(0.23, 1, 0.32, 1)', fill: 'forwards' }
+        ));
+        const style = getComputedStyle(row);
+        await settle(row.animate(
+            [
+                { height: `${row.offsetHeight}px`, paddingTop: style.paddingTop, paddingBottom: style.paddingBottom, marginBottom: style.marginBottom },
+                { height: '0px', paddingTop: '0px', paddingBottom: '0px', marginBottom: '0px' },
+            ],
+            { duration: 220, easing: 'cubic-bezier(0.77, 0, 0.175, 1)', fill: 'forwards' }
+        ));
+        row.remove();
+    }
+
+    async function deleteFile(row, btn) {
+        const passkey = loadedPasskey;
+        clearTimeout(row.disarmTimer);
+        setLoading(btn, true);
+        try {
+            const res = await fetch(`/files/${encodeURIComponent(passkey)}/${encodeURIComponent(row.dataset.id)}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            await removeRow(row);
+            const remaining = fileList.querySelectorAll('.file-row').length;
+            if (remaining === 0) renderEmptyFiles(passkey);
+            else setCount(remaining);
+            toast('File deleted', { type: 'success', description: row.dataset.name });
+        } catch (err) {
+            console.error('Delete failed:', err);
+            setLoading(btn, false);
+            disarm(row);
+            toast("Couldn't delete that file", { type: 'error', description: 'Please try again in a moment.' });
+        }
+    }
+
+    fileList.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action="delete"]');
+        if (!btn || btn.disabled) return;
+        const row = btn.closest('.file-row');
+        if (row.hasAttribute('data-armed')) deleteFile(row, btn);
+        else arm(row);
+    });
+
+    document.addEventListener('pointerdown', (e) => {
+        if (!e.target.closest('.file-row[data-armed]')) {
+            fileList.querySelectorAll('.file-row[data-armed]').forEach(disarm);
+        }
+    });
+
+    /* ---------- Refresh ---------- */
+    // A full page reload: everything resets except what lives in localStorage
+    // (recent passkeys and the dark/light choice).
+    refreshBtn.addEventListener('click', () => {
+        // Mid-upload the browser asks "Leave site?" first; only spin if we're really leaving.
+        if (!isUploading) refreshBtn.setAttribute('data-busy', '');
+        location.reload();
+    });
+
+    /* ---------- Passkey reveal ---------- */
+    function showPasskey(passkey) {
+        passkeyValue.dataset.value = passkey;
+        passkeyValue.innerHTML = [...passkey]
+            .map((char, i) => `<span class="passkey-char" style="--i:${i}">${esc(char)}</span>`)
+            .join('');
+        passkeyValueSr.textContent = passkey;
+        passkeyDisplay.hidden = false;
+    }
+
+    function hidePasskey() {
+        passkeyDisplay.hidden = true;
+        passkeyValue.textContent = '';
+        passkeyValue.dataset.value = '';
+        passkeyValueSr.textContent = '';
+    }
+
+    function legacyCopy(text) {
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', '');
+        area.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+        document.body.append(area);
+        area.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch { ok = false; }
+        area.remove();
+        return ok;
+    }
+
+    copyBtn.addEventListener('click', async () => {
+        const value = passkeyValue.dataset.value || '';
+        try {
+            await navigator.clipboard.writeText(value);
+        } catch {
+            if (!legacyCopy(value)) {
+                toast("Couldn't copy", { type: 'error', description: 'Select the passkey and copy it manually.' });
+                return;
+            }
+        }
+        copyBtn.dataset.state = 'copied';
+        announce('Passkey copied to clipboard.');
+        clearTimeout(copyBtn.resetTimer);
+        copyBtn.resetTimer = setTimeout(() => delete copyBtn.dataset.state, 1600);
+    });
+
+    if (typeof navigator.share === 'function') {
+        shareBtn.hidden = false;
+        shareBtn.addEventListener('click', async () => {
+            const value = passkeyValue.dataset.value || '';
+            try {
+                await navigator.share({ title: 'FileNest', text: `Open my files on FileNest with passkey ${value}`, url: `${location.origin}/` });
+            } catch (err) {
+                if (err.name !== 'AbortError') toast("Couldn't open the share sheet", { type: 'error' });
+            }
+        });
+    }
+
+    /* ---------- Upload ---------- */
+    function setUploadProgress(fraction) {
+        const pct = Math.round(fraction * 100);
+        dzBar.style.transform = `translateX(${(fraction - 1) * 100}%)`;
+        dzPercent.textContent = `${pct}%`;
+        if (fraction >= 1 && !dzTrack.hasAttribute('data-processing')) {
+            // Bytes reached Spring; it still has to push the file to Cloudinary.
+            dzTrack.setAttribute('data-processing', '');
+            dzPhase.textContent = 'Saving to the cloud…';
+            announce('Saving to the cloud.');
+        }
+    }
+
+    function setDropZoneUploading(uploading, file) {
+        dropZone.dataset.state = uploading ? 'uploading' : 'idle';
+        dropZone.setAttribute('aria-disabled', String(uploading));
+        dropZone.setAttribute('aria-busy', String(uploading));
+        uploadBtn.disabled = uploading;
+        if (!uploading) return;
+        dzFileName.textContent = file.name;
+        dzFileSize.textContent = formatBytes(file.size);
+        dzPhase.textContent = 'Uploading…';
+        dzTrack.removeAttribute('data-processing');
+        setUploadProgress(0);
+        announce(`Uploading ${file.name}.`);
+    }
+
+    // XHR instead of fetch so we get real upload progress.
+    function sendUpload(formData, onProgress) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/upload');
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable) onProgress(e.loaded / e.total);
+            });
+            xhr.upload.addEventListener('load', () => onProgress(1));
+            xhr.addEventListener('load', () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try { resolve(JSON.parse(xhr.responseText)); }
+                    catch (err) { reject(Object.assign(err, { status: xhr.status })); }
+                } else {
+                    reject(Object.assign(new Error(xhr.responseText || 'Upload failed'), { status: xhr.status }));
+                }
+            });
+            xhr.addEventListener('error', () => reject(Object.assign(new Error('Network error'), { status: 0 })));
+            xhr.send(formData);
+        });
+    }
+
+    function uploadErrorMessage(err) {
+        if (err.status === 0) return 'Network error — check your connection and try again.';
+        if (err.status === 413) return 'That file is over the 50 MB upload limit.';
+        return `The server returned ${err.status}. Files over 10 MB (except videos) may be rejected by the storage plan.`;
+    }
+
+    // On desktop <main> is its own scroll area; on mobile the window scrolls.
+    function isVisible(el) {
+        const main = $('main');
+        const area = main.scrollHeight > main.clientHeight && getComputedStyle(main).overflowY !== 'visible'
+            ? main.getBoundingClientRect()
+            : { top: 0, bottom: innerHeight };
+        const rect = el.getBoundingClientRect();
+        return rect.bottom > area.top && rect.top < area.bottom;
     }
 
     async function uploadFile(file) {
-        setDropZoneUploading(true);
+        if (isUploading) return;
+        if (file.size === 0) {
+            toast('That file is empty', { type: 'error', description: file.name });
+            return;
+        }
+        if (file.size > MAX_UPLOAD_BYTES) {
+            toast('That file is too big', { type: 'error', description: `${file.name} is ${formatBytes(file.size)}. The limit is 50 MB.` });
+            return;
+        }
+
+        isUploading = true;
+        setDropZoneUploading(true, file);
 
         const formData = new FormData();
         formData.append('file', file);
@@ -706,113 +1856,607 @@
         }
 
         try {
-            const res = await fetch('/upload', { method: 'POST', body: formData });
-
-            if (!res.ok) {
-                const errorText = await res.text();
-                console.error('Upload failed:', res.status, errorText);
-                alert(`Upload failed (${res.status}). Check the browser console for details.`);
-                return;
-            }
-
-            const data = await res.json();
-
-            passkeyValue.textContent = data.passkey;
-            passkeyDisplay.classList.remove('hidden');
-            passkeyDisplay.classList.add('flex');
+            const data = await sendUpload(formData, setUploadProgress);
+            const watchingDropZone = isVisible(dropZone);
+            showPasskey(data.passkey);
             passkeyInput.value = data.passkey;
-
-            saveRecent(data.passkey);
-            await loadFiles();
+            passkeyInput.removeAttribute('aria-invalid');
+            updateCount();
+            await loadFiles(data.passkey);
+            flashRow(data.publicId);
+            if (watchingDropZone) {
+                // The passkey card is the confirmation; a toast here would sit on top of its Copy button.
+                passkeyDisplay.scrollIntoView({ block: 'nearest', behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+            } else {
+                toast('Uploaded', { type: 'success', description: `${file.name} is saved under passkey ${data.passkey}.` });
+            }
         } catch (err) {
-            console.error('Upload error:', err);
-            alert('Something went wrong uploading. Check the browser console.');
+            console.error('Upload failed:', err.status, err);
+            toast('Upload failed', { type: 'error', description: uploadErrorMessage(err) });
         } finally {
+            isUploading = false;
+            fileInput.value = ''; // lets the same file be picked again
             setDropZoneUploading(false);
         }
     }
 
-    function copyPasskey() {
-        navigator.clipboard.writeText(passkeyValue.textContent);
-        const original = copyBtn.innerHTML;
-        copyBtn.innerHTML = '✓ Copied';
-        copyBtn.classList.add('text-greenc');
-        setTimeout(() => {
-            copyBtn.innerHTML = original;
-            copyBtn.classList.remove('text-greenc');
-        }, 1200);
-    }
+    window.addEventListener('beforeunload', (e) => {
+        if (!isUploading) return;
+        e.preventDefault();
+        e.returnValue = '';
+    });
 
-    async function loadFiles(triggerBtn) {
-        const passkey = passkeyInput.value.trim();
-        if (!passkey) {
-            passkeyInput.classList.add('shake', 'border-redc');
-            passkeyInput.focus();
-            setTimeout(() => passkeyInput.classList.remove('shake', 'border-redc'), 400);
-            return;
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('click', () => { if (!isUploading) fileInput.click(); });
+    dropZone.addEventListener('keydown', (e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && !isUploading) {
+            e.preventDefault();
+            fileInput.click();
+        }
+    });
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) uploadFile(fileInput.files[0]);
+    });
+
+    // Files can be dropped anywhere on the page; the drop zone lights up while dragging.
+    // A depth counter avoids flicker from dragenter/dragleave firing on child elements.
+    let dragDepth = 0;
+    const carriesFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+
+    window.addEventListener('dragenter', (e) => {
+        if (!carriesFiles(e)) return;
+        e.preventDefault();
+        dragDepth++;
+        if (!isUploading) dropZone.dataset.state = 'dragging';
+    });
+    window.addEventListener('dragover', (e) => {
+        if (!carriesFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = isUploading ? 'none' : 'copy';
+    });
+    window.addEventListener('dragleave', (e) => {
+        if (!carriesFiles(e)) return;
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0 && !isUploading) dropZone.dataset.state = 'idle';
+    });
+    window.addEventListener('drop', (e) => {
+        if (!carriesFiles(e)) return;
+        e.preventDefault();
+        dragDepth = 0;
+        if (isUploading) return;
+        dropZone.dataset.state = 'idle';
+        const files = e.dataTransfer.files;
+        if (files.length > 1) {
+            toast('One file at a time', { description: `Uploading ${files[0].name} now.` });
+        }
+        if (files.length > 0) uploadFile(files[0]);
+    });
+
+    /* ---------- Guide ---------- */
+    $('guideBtn').addEventListener('click', () => guideModal.showModal());
+    $('guideClose').addEventListener('click', () => guideModal.close());
+    guideModal.addEventListener('click', (e) => {
+        if (e.target === guideModal) guideModal.close();
+    });
+
+    /* ---------- Laser beam (dark mode only) ----------
+       Plain-WebGL port of the LaserFlow component (no React, no three.js). The shader is unchanged except
+       main(), which outputs premultiplied alpha so the beam glows over the page without mix-blend-mode.
+       Nothing is created until dark mode is first switched on, so light mode never pays for it. */
+    const laser = (() => {
+        const canvas = $('laser');
+        const host = canvas.parentElement;
+        // px the canvas extends below the drop zone's top edge (hidden behind the zone). The shader sizes
+        // the beam relative to canvas height, so a taller canvas also means a longer, brighter beam.
+        const GLOW_BELOW = 260;
+        const BEAM_AT = 0.85;   // fallback landing spot (fraction of the drop zone's width) if "passkey" isn't in the headline
+        const COLOR = [0x3b / 255, 0x82 / 255, 0xf6 / 255]; // #3b82f6
+        const SETTINGS = {
+            uWispDensity: 1, uTiltScale: 0.01, uFlowSpeed: 0.35,
+            uVLenFactor: 2.0, uHLenFactor: 0.5, uFogIntensity: 0.45, uFogScale: 0.3,
+            uWSpeed: 15.0, uWIntensity: 5.0, uFlowStrength: 0.25, uDecay: 1.1,
+            uFalloffStart: 1.2, uFogFallSpeed: 0.6,
+        };
+
+        const VERT = `
+precision highp float;
+attribute vec3 position;
+void main(){
+  gl_Position = vec4(position, 1.0);
+}
+`;
+
+        const FRAG = `
+#ifdef GL_ES
+#extension GL_OES_standard_derivatives : enable
+#endif
+precision highp float;
+precision mediump int;
+
+uniform float iTime;
+uniform vec3 iResolution;
+uniform vec4 iMouse;
+uniform float uWispDensity;
+uniform float uTiltScale;
+uniform float uFlowTime;
+uniform float uFogTime;
+uniform float uBeamXFrac;
+uniform float uBeamYFrac;
+uniform float uFlowSpeed;
+uniform float uVLenFactor;
+uniform float uHLenFactor;
+uniform float uFogIntensity;
+uniform float uFogScale;
+uniform float uWSpeed;
+uniform float uWIntensity;
+uniform float uFlowStrength;
+uniform float uDecay;
+uniform float uFalloffStart;
+uniform float uFogFallSpeed;
+uniform vec3 uColor;
+uniform float uFade;
+
+// Core beam/flare shaping and dynamics
+#define PI 3.14159265359
+#define TWO_PI 6.28318530718
+#define EPS 1e-6
+#define EDGE_SOFT (DT_LOCAL*4.0)
+#define DT_LOCAL 0.0038
+#define TAP_RADIUS 6
+#define R_H 150.0
+#define R_V 150.0
+#define FLARE_HEIGHT 16.0
+#define FLARE_AMOUNT 8.0
+#define FLARE_EXP 2.0
+#define TOP_FADE_START 0.1
+#define TOP_FADE_EXP 1.0
+#define FLOW_PERIOD 0.5
+#define FLOW_SHARPNESS 1.5
+
+// Wisps (animated micro-streaks) that travel along the beam
+#define W_BASE_X 1.5
+#define W_LAYER_GAP 0.25
+#define W_LANES 10
+#define W_SIDE_DECAY 0.5
+#define W_HALF 0.01
+#define W_AA 0.15
+#define W_CELL 20.0
+#define W_SEG_MIN 0.01
+#define W_SEG_MAX 0.55
+#define W_CURVE_AMOUNT 15.0
+#define W_CURVE_RANGE (FLARE_HEIGHT - 3.0)
+#define W_BOTTOM_EXP 10.0
+
+// Volumetric fog controls
+#define FOG_ON 1
+#define FOG_CONTRAST 1.2
+#define FOG_SPEED_U 0.1
+#define FOG_SPEED_V -0.1
+#define FOG_OCTAVES 5
+#define FOG_BOTTOM_BIAS 0.8
+#define FOG_TILT_TO_MOUSE 0.05
+#define FOG_TILT_DEADZONE 0.01
+#define FOG_TILT_MAX_X 0.35
+#define FOG_TILT_SHAPE 1.5
+#define FOG_BEAM_MIN 0.0
+#define FOG_BEAM_MAX 0.75
+#define FOG_MASK_GAMMA 0.5
+#define FOG_EXPAND_SHAPE 12.2
+#define FOG_EDGE_MIX 0.5
+
+// Horizontal vignette for the fog volume
+#define HFOG_EDGE_START 0.20
+#define HFOG_EDGE_END 0.98
+#define HFOG_EDGE_GAMMA 1.4
+#define HFOG_Y_RADIUS 25.0
+#define HFOG_Y_SOFT 60.0
+
+// Beam extents and edge masking
+#define EDGE_X0 0.22
+#define EDGE_X1 0.995
+#define EDGE_X_GAMMA 1.25
+#define EDGE_LUMA_T0 0.0
+#define EDGE_LUMA_T1 2.0
+#define DITHER_STRENGTH 1.0
+
+    float g(float x){return x<=0.00031308?12.92*x:1.055*pow(x,1.0/2.4)-0.055;}
+    float bs(vec2 p,vec2 q,float powr){
+        float d=distance(p,q),f=powr*uFalloffStart,r=(f*f)/(d*d+EPS);
+        return powr*min(1.0,r);
+    }
+    float bsa(vec2 p,vec2 q,float powr,vec2 s){
+        vec2 d=p-q; float dd=(d.x*d.x)/(s.x*s.x)+(d.y*d.y)/(s.y*s.y),f=powr*uFalloffStart,r=(f*f)/(dd+EPS);
+        return powr*min(1.0,r);
+    }
+    float tri01(float x){float f=fract(x);return 1.0-abs(f*2.0-1.0);}
+    float tauWf(float t,float tmin,float tmax){float a=smoothstep(tmin,tmin+EDGE_SOFT,t),b=1.0-smoothstep(tmax-EDGE_SOFT,tmax,t);return max(0.0,a*b);}
+    float h21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+34.123);return fract(p.x*p.y);}
+    float vnoise(vec2 p){
+        vec2 i=floor(p),f=fract(p);
+        float a=h21(i),b=h21(i+vec2(1,0)),c=h21(i+vec2(0,1)),d=h21(i+vec2(1,1));
+        vec2 u=f*f*(3.0-2.0*f);
+        return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
+    }
+    float fbm2(vec2 p){
+        float v=0.0,amp=0.6; mat2 m=mat2(0.86,0.5,-0.5,0.86);
+        for(int i=0;i<FOG_OCTAVES;++i){v+=amp*vnoise(p); p=m*p*2.03+17.1; amp*=0.52;}
+        return v;
+    }
+    float rGate(float x,float l){float a=smoothstep(0.0,W_AA,x),b=1.0-smoothstep(l,l+W_AA,x);return max(0.0,a*b);}
+    float flareY(float y){float t=clamp(1.0-(clamp(y,0.0,FLARE_HEIGHT)/max(FLARE_HEIGHT,EPS)),0.0,1.0);return pow(t,FLARE_EXP);}
+
+    float vWisps(vec2 uv,float topF){
+    float y=uv.y,yf=(y+uFlowTime*uWSpeed)/W_CELL;
+    float dRaw=clamp(uWispDensity,0.0,2.0),d=dRaw<=0.0?1.0:dRaw;
+    float lanesF=floor(float(W_LANES)*min(d,1.0)+0.5); // WebGL1-safe
+    int lanes=int(max(1.0,lanesF));
+    float sp=min(d,1.0),ep=max(d-1.0,0.0);
+    float fm=flareY(max(y,0.0)),rm=clamp(1.0-(y/max(W_CURVE_RANGE,EPS)),0.0,1.0),cm=fm*rm;
+    const float G=0.05; float xS=1.0+(FLARE_AMOUNT*W_CURVE_AMOUNT*G)*cm;
+    float sPix=clamp(y/R_V,0.0,1.0),bGain=pow(1.0-sPix,W_BOTTOM_EXP),sum=0.0;
+    for(int s=0;s<2;++s){
+        float sgn=s==0?-1.0:1.0;
+        for(int i=0;i<W_LANES;++i){
+            if(i>=lanes) break;
+            float off=W_BASE_X+float(i)*W_LAYER_GAP,xc=sgn*(off*xS);
+            float dx=abs(uv.x-xc),lat=1.0-smoothstep(W_HALF,W_HALF+W_AA,dx),amp=exp(-off*W_SIDE_DECAY);
+            float seed=h21(vec2(off,sgn*17.0)),yf2=yf+seed*7.0,ci=floor(yf2),fy=fract(yf2);
+            float seg=mix(W_SEG_MIN,W_SEG_MAX,h21(vec2(ci,off*2.3)));
+            float spR=h21(vec2(ci,off+sgn*31.0)),seg1=rGate(fy,seg)*step(spR,sp);
+            if(ep>0.0){float spR2=h21(vec2(ci*3.1+7.0,off*5.3+sgn*13.0)); float f2=fract(fy+0.5); seg1+=rGate(f2,seg*0.9)*step(spR2,ep);}
+            sum+=amp*lat*seg1;
+        }
+    }
+    float span=smoothstep(-3.0,0.0,y)*(1.0-smoothstep(R_V-6.0,R_V,y));
+    return uWIntensity*sum*topF*bGain*span;
+}
+
+void mainImage(out vec4 fc,in vec2 frag){
+    vec2 C=iResolution.xy*.5; float invW=1.0/max(C.x,1.0);
+    vec2 sc=(512.0/iResolution.xy)*.4;
+    vec2 uv=(frag-C)*sc,off=vec2(uBeamXFrac*iResolution.x*sc.x,uBeamYFrac*iResolution.y*sc.y);
+    vec2 uvc = uv - off;
+    float a=0.0,b=0.0;
+    float basePhase=1.5*PI+uDecay*.5; float tauMin=basePhase-uDecay; float tauMax=basePhase;
+    float cx=clamp(uvc.x/(R_H*uHLenFactor),-1.0,1.0),tH=clamp(TWO_PI-acos(cx),tauMin,tauMax);
+    for(int k=-TAP_RADIUS;k<=TAP_RADIUS;++k){
+        float tu=tH+float(k)*DT_LOCAL,wt=tauWf(tu,tauMin,tauMax); if(wt<=0.0) continue;
+        float spd=max(abs(sin(tu)),0.02),u=clamp((basePhase-tu)/max(uDecay,EPS),0.0,1.0),env=pow(1.0-abs(u*2.0-1.0),0.8);
+        vec2 p=vec2((R_H*uHLenFactor)*cos(tu),0.0);
+        a+=wt*bs(uvc,p,env*spd);
+    }
+    float yPix=uvc.y,cy=clamp(-yPix/(R_V*uVLenFactor),-1.0,1.0),tV=clamp(TWO_PI-acos(cy),tauMin,tauMax);
+    for(int k=-TAP_RADIUS;k<=TAP_RADIUS;++k){
+        float tu=tV+float(k)*DT_LOCAL,wt=tauWf(tu,tauMin,tauMax); if(wt<=0.0) continue;
+        float yb=(-R_V)*cos(tu),s=clamp(yb/R_V,0.0,1.0),spd=max(abs(sin(tu)),0.02);
+        float env=pow(1.0-s,0.6)*spd;
+        float cap=1.0-smoothstep(TOP_FADE_START,1.0,s); cap=pow(cap,TOP_FADE_EXP); env*=cap;
+        float ph=s/max(FLOW_PERIOD,EPS)+uFlowTime*uFlowSpeed;
+        float fl=pow(tri01(ph),FLOW_SHARPNESS);
+        env*=mix(1.0-uFlowStrength,1.0,fl);
+        float yp=(-R_V*uVLenFactor)*cos(tu),m=pow(smoothstep(FLARE_HEIGHT,0.0,yp),FLARE_EXP),wx=1.0+FLARE_AMOUNT*m;
+        vec2 sig=vec2(wx,1.0),p=vec2(0.0,yp);
+        float mask=step(0.0,yp);
+        b+=wt*bsa(uvc,p,mask*env,sig);
+    }
+    float sPix=clamp(yPix/R_V,0.0,1.0),topA=pow(1.0-smoothstep(TOP_FADE_START,1.0,sPix),TOP_FADE_EXP);
+    float L=a+b*topA;
+    float w=vWisps(vec2(uvc.x,yPix),topA);
+    float fog=0.0;
+#if FOG_ON
+    vec2 fuv=uvc*uFogScale;
+    float mAct=step(1.0,length(iMouse.xy)),nx=((iMouse.x-C.x)*invW)*mAct;
+    float ax = abs(nx);
+    float stMag = mix(ax, pow(ax, FOG_TILT_SHAPE), 0.35);
+    float st = sign(nx) * stMag * uTiltScale;
+    st = clamp(st, -FOG_TILT_MAX_X, FOG_TILT_MAX_X);
+    vec2 dir=normalize(vec2(st,1.0));
+    fuv+=uFogTime*uFogFallSpeed*dir;
+    vec2 prp=vec2(-dir.y,dir.x);
+    fuv+=prp*(0.08*sin(dot(uvc,prp)*0.08+uFogTime*0.9));
+    float n=fbm2(fuv+vec2(fbm2(fuv+vec2(7.3,2.1)),fbm2(fuv+vec2(-3.7,5.9)))*0.6);
+    n=pow(clamp(n,0.0,1.0),FOG_CONTRAST);
+    float pixW = 1.0 / max(iResolution.y, 1.0);
+#ifdef GL_OES_standard_derivatives
+    float wL = max(fwidth(L), pixW);
+#else
+    float wL = pixW;
+#endif
+    float m0=pow(smoothstep(FOG_BEAM_MIN - wL, FOG_BEAM_MAX + wL, L),FOG_MASK_GAMMA);
+    float bm=1.0-pow(1.0-m0,FOG_EXPAND_SHAPE); bm=mix(bm*m0,bm,FOG_EDGE_MIX);
+    float yP=1.0-smoothstep(HFOG_Y_RADIUS,HFOG_Y_RADIUS+HFOG_Y_SOFT,abs(yPix));
+    float nxF=abs((frag.x-(C.x+uBeamXFrac*iResolution.x))*invW),hE=1.0-smoothstep(HFOG_EDGE_START,HFOG_EDGE_END,nxF); hE=pow(clamp(hE,0.0,1.0),HFOG_EDGE_GAMMA);
+    float hW=mix(1.0,hE,clamp(yP,0.0,1.0));
+    float bBias=mix(1.0,1.0-sPix,FOG_BOTTOM_BIAS);
+    float browserFogIntensity = uFogIntensity;
+    browserFogIntensity *= 1.8;
+    float radialFade = 1.0 - smoothstep(0.0, 0.7, length(uvc) / 120.0);
+    float safariFog = n * browserFogIntensity * bBias * bm * hW * radialFade;
+    fog = safariFog;
+#endif
+    float LF=L+fog;
+    float dith=(h21(frag)-0.5)*(DITHER_STRENGTH/255.0);
+    float tone=g(LF+w);
+    vec3 col=tone*uColor+dith;
+    float alpha=clamp(g(L+w*0.6)+dith*0.6,0.0,1.0);
+    float nxE=abs((frag.x-(C.x+uBeamXFrac*iResolution.x))*invW),xF=pow(clamp(1.0-smoothstep(EDGE_X0,EDGE_X1,nxE),0.0,1.0),EDGE_X_GAMMA);
+    float scene=LF+max(0.0,w)*0.5,hi=smoothstep(EDGE_LUMA_T0,EDGE_LUMA_T1,scene);
+    float eM=mix(xF,1.0,hi);
+    col*=eM; alpha*=eM;
+    col*=uFade; alpha*=uFade;
+    fc=vec4(col,alpha);
+}
+
+void main(){
+  vec4 fc;
+  mainImage(fc, gl_FragCoord.xy);
+  // Premultiplied output: light adds onto whatever is behind, like the original's screen blend on black.
+  vec3 c = clamp(fc.rgb, 0.0, 1.0);
+  // Off-centre beam: fade the flare out near the canvas sides instead of cutting it off.
+  float ex = gl_FragCoord.x / iResolution.x;
+  c *= smoothstep(0.0, 0.08, ex) * smoothstep(0.0, 0.08, 1.0 - ex);
+  gl_FragColor = vec4(c, max(max(c.r, c.g), c.b));
+}
+`;
+
+        let gl = null;
+        let uni = null;
+        let failed = false;
+        let lost = false;
+        let active = false;
+        let inView = false;
+        let raf = 0;
+        let lastTime = 0;
+        let flowTime = 0;
+        let fogTime = 0;
+        let fade = 0;
+        const mouse = { x: 0, y: 0 };
+
+        // Adaptive resolution, as in the original: drop the pixel ratio if frames fall under ~50fps.
+        const baseDpr = Math.min(window.devicePixelRatio || 1, 2);
+        let dpr = baseDpr;
+        let emaDt = 16.7;
+        let fpsSamples = [];
+        let lastFpsCheck = 0;
+        let lastDprChange = 0;
+
+        function compile(type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return shader;
+            console.warn('Laser shader failed to compile:', gl.getShaderInfoLog(shader));
+            return null;
         }
 
-        setButtonLoading(triggerBtn, true);
+        function setup() {
+            gl = gl || canvas.getContext('webgl', {
+                alpha: true, premultipliedAlpha: true, antialias: false,
+                depth: false, stencil: false, powerPreference: 'high-performance',
+            });
+            if (!gl) return false;
+            gl.getExtension('OES_standard_derivatives');
+            const vs = compile(gl.VERTEX_SHADER, VERT);
+            const fs = compile(gl.FRAGMENT_SHADER, FRAG);
+            if (!vs || !fs) return false;
+            const program = gl.createProgram();
+            gl.attachShader(program, vs);
+            gl.attachShader(program, fs);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.warn('Laser shader failed to link:', gl.getProgramInfoLog(program));
+                return false;
+            }
+            gl.useProgram(program);
 
-        try {
-            const res = await fetch('/files/' + passkey);
-            const files = await res.json();
+            // One oversized triangle covers the whole canvas.
+            gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), gl.STATIC_DRAW);
+            const position = gl.getAttribLocation(program, 'position');
+            gl.enableVertexAttribArray(position);
+            gl.vertexAttribPointer(position, 3, gl.FLOAT, false, 0, 0);
 
-            fileList.innerHTML = '';
+            uni = {};
+            ['iTime', 'iResolution', 'iMouse', 'uFlowTime', 'uFogTime', 'uBeamXFrac', 'uBeamYFrac', 'uColor', 'uFade', ...Object.keys(SETTINGS)]
+                .forEach((name) => { uni[name] = gl.getUniformLocation(program, name); });
+            Object.entries(SETTINGS).forEach(([name, value]) => gl.uniform1f(uni[name], value));
+            gl.uniform3f(uni.uColor, COLOR[0], COLOR[1], COLOR[2]);
+            gl.clearColor(0, 0, 0, 0);
+            return true;
+        }
 
-            if (!files || files.length === 0) {
-                fileList.innerHTML = `
-          <div class="flex flex-col items-center justify-center text-center px-6 py-8">
-            <div class="font-semibold text-sm text-[#4b5563]">No files yet</div>
-            <div class="text-xs text-[#9aa5b8] mt-1">for passkey ${passkey}</div>
-          </div>`;
-                fileCountBadge.textContent = '0 files';
-                saveRecent(passkey);
+        function resize() {
+            // The canvas runs from the top of the column to just below the drop zone's top edge.
+            const height = Math.round(dropZone.offsetTop + GLOW_BELOW);
+            canvas.style.height = `${height}px`;
+            const w = Math.max(1, Math.round(host.clientWidth * dpr));
+            const h = Math.max(1, Math.round(height * dpr));
+            if (canvas.width !== w || canvas.height !== h) {
+                canvas.width = w;
+                canvas.height = h;
+            }
+            gl.viewport(0, 0, w, h);
+            gl.uniform3f(uni.iResolution, w, h, dpr);
+            // Put the flare exactly on the drop zone's top edge (GLOW_BELOW px up from the canvas bottom).
+            gl.uniform1f(uni.uBeamYFrac, GLOW_BELOW / height - 0.5);
+            gl.uniform1f(uni.uBeamXFrac, beamX() / host.clientWidth - 0.5);
+        }
+
+        // The beam drops through the gap between the "k" and "e" of "passkey", measured from the
+        // rendered text so it lines up at every screen size.
+        function beamX() {
+            const walker = document.createTreeWalker(document.querySelector('.headline'), NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                const i = node.data.indexOf('passkey');
+                if (i === -1) continue;
+                const range = document.createRange();
+                range.setStart(node, i + 5); // the "e"
+                range.setEnd(node, i + 6);
+                return range.getBoundingClientRect().left - host.getBoundingClientRect().left;
+            }
+            return dropZone.offsetLeft + dropZone.offsetWidth * BEAM_AT;
+        }
+
+        function draw(seconds) {
+            gl.uniform1f(uni.iTime, seconds);
+            gl.uniform1f(uni.uFlowTime, flowTime);
+            gl.uniform1f(uni.uFogTime, fogTime);
+            gl.uniform1f(uni.uFade, fade);
+            gl.uniform4f(uni.iMouse, mouse.x, mouse.y, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+        }
+
+        function adjustDpr(now) {
+            if (now - lastFpsCheck < 750) return;
+            if (fpsSamples.length) {
+                const avg = fpsSamples.reduce((sum, fps) => sum + fps, 0) / fpsSamples.length;
+                let next = dpr;
+                if (avg < 50) next = Math.max(0.6, dpr * 0.85);
+                else if (avg > 58 && dpr < baseDpr) next = Math.min(baseDpr, dpr * 1.1);
+                if (Math.abs(next - dpr) > 0.01 && now - lastDprChange > 2000) {
+                    dpr = next;
+                    lastDprChange = now;
+                    resize();
+                }
+            }
+            fpsSamples = [];
+            lastFpsCheck = now;
+        }
+
+        function frame(now) {
+            raf = requestAnimationFrame(frame);
+            const dt = lastTime ? (now - lastTime) / 1000 : 1 / 60;
+            lastTime = now;
+            emaDt = emaDt * 0.9 + dt * 1000 * 0.1;
+            fpsSamples.push(1000 / Math.max(1, emaDt));
+            const step = Math.min(0.033, Math.max(0.001, dt));
+            flowTime += step;
+            fogTime += step;
+            fade = Math.min(1, fade + step); // fades in over ~1s each time dark mode turns on
+            draw(now / 1000);
+            adjustDpr(now);
+        }
+
+        function start() {
+            if (raf) return;
+            lastTime = 0;
+            fpsSamples = [];
+            lastFpsCheck = performance.now();
+            raf = requestAnimationFrame(frame);
+        }
+
+        function stop() {
+            cancelAnimationFrame(raf);
+            raf = 0;
+        }
+
+        function update() {
+            const dark = document.documentElement.classList.contains('dark');
+            if (!dark || lost || failed) {
+                stop();
+                active = false;
                 return;
             }
-
-            fileCountBadge.textContent = `${files.length} file${files.length > 1 ? 's' : ''}`;
-            saveRecent(passkey);
-
-            files.forEach(file => {
-                const item = document.createElement('div');
-                item.className = 'flex items-center gap-3 p-3 border border-linec rounded-lg hover:bg-bluelight transition-colors';
-
-                const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(file.format);
-                const preview = isImage
-                    ? `<img class="w-10 h-10 object-cover rounded-md border border-linec" src="${file.secure_url}">`
-                    : `<div class="w-10 h-10 rounded-md bg-amberlight flex items-center justify-center text-base">📄</div>`;
-
-                const name = file.public_id.split('/').pop();
-                const ext = file.format || (name.includes('.') ? name.split('.').pop() : '');
-                const downloadName = name.includes('.') ? name : (ext ? `${name}.${ext}` : name);
-                const safeId = file.public_id.replace('/', '--');
-
-                item.innerHTML = `
-          ${preview}
-          <div class="flex-1 text-sm font-medium truncate">${downloadName}</div>
-          <a class="text-xs text-blueprimary font-semibold px-2 py-1 rounded hover:bg-white active:scale-[0.95] transition-all" href="${file.secure_url}" download="${downloadName}" target="_blank">Open</a>
-          <button class="text-xs text-redc font-semibold px-2 py-1 rounded hover:bg-white active:scale-[0.95] transition-all" onclick="deleteFile(this, '${safeId}')">Delete</button>
-        `;
-                fileList.appendChild(item);
-            });
-        } finally {
-            setButtonLoading(triggerBtn, false);
+            if (!uni && !setup()) {
+                failed = true; // no WebGL: dark mode simply runs without the beam
+                return;
+            }
+            if (!active) {
+                active = true;
+                fade = 0;
+            }
+            resize();
+            if (reduceMotion.matches) {
+                // Reduced motion: one still frame of the beam instead of an animation.
+                stop();
+                fade = 1;
+                flowTime = fogTime = 3;
+                draw(3);
+                return;
+            }
+            // Pauses while the tab is hidden or the beam is scrolled out of view.
+            if (document.hidden || !inView) stop();
+            else start();
         }
+
+        new ResizeObserver(update).observe(host);
+        document.fonts.ready.then(update); // the k/e gap moves once Space Grotesk loads
+        new IntersectionObserver(([entry]) => {
+            inView = entry.isIntersecting;
+            update();
+        }).observe(canvas);
+        document.addEventListener('visibilitychange', update);
+        reduceMotion.addEventListener('change', update);
+
+        // The fog leans slightly toward the pointer (the original's mouseTiltStrength).
+        window.addEventListener('pointermove', (e) => {
+            if (!raf) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const inside = x >= 0 && y >= 0 && x <= rect.width && y <= rect.height;
+            mouse.x = inside ? x * dpr : 0;
+            mouse.y = inside ? (rect.height - y) * dpr : 0;
+        }, { passive: true });
+
+        canvas.addEventListener('webglcontextlost', (e) => {
+            e.preventDefault();
+            lost = true;
+            uni = null;
+            update();
+        });
+        canvas.addEventListener('webglcontextrestored', () => {
+            lost = false;
+            update();
+        });
+
+        return { update };
+    })();
+
+    /* ---------- Theme ---------- */
+    const THEME_KEY = 'filenest_theme';
+    const themeColor = document.querySelector('meta[name="theme-color"]');
+    const themeToggles = document.querySelectorAll('[data-theme-toggle]');
+    const isDark = () => document.documentElement.classList.contains('dark');
+
+    function syncThemeUi() {
+        const dark = isDark();
+        themeToggles.forEach((btn) => btn.setAttribute('aria-pressed', String(dark)));
+        themeColor.setAttribute('content', dark ? '#100e0b' : '#faf8f2');
     }
 
-    async function deleteFile(btn, safeId) {
-        setButtonLoading(btn, true);
-        const passkey = passkeyInput.value.trim();
-        try {
-            await fetch(`/files/${passkey}/${safeId}`, { method: 'DELETE' });
-            await loadFiles();
-        } finally {
-            // row is removed by re-render, nothing to restore
+    function setTheme(dark, origin) {
+        try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch { /* storage unavailable */ }
+        const apply = () => {
+            document.documentElement.classList.toggle('dark', dark);
+            syncThemeUi();
+            laser.update();
+        };
+        if (typeof document.startViewTransition !== 'function' || reduceMotion.matches) {
+            apply();
+            return;
         }
+        // The new theme spreads out in a circle from the button that was pressed.
+        const rect = origin.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+        document.startViewTransition(apply).ready.then(() => {
+            document.documentElement.animate(
+                { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+                { duration: 550, easing: 'cubic-bezier(0.77, 0, 0.175, 1)', pseudoElement: '::view-transition-new(root)' }
+            );
+        }).catch(() => { /* transition skipped; the theme is already applied */ });
     }
 
+    themeToggles.forEach((btn) => btn.addEventListener('click', () => setTheme(!isDark(), btn)));
+
+    updateCount();
     renderRecent();
+    syncThemeUi();
+    laser.update();
+})();
 </script>
 
 </body>
